@@ -14,7 +14,12 @@ from .bases import (
 
 
 
-class SchedulePhrase(_From__ToPhraseMixin, _AtPhraseMixin, _AfterEveryPhraseMixin, BaseSchedulePhrase):
+class SchedulePhrase(
+        _From__ToPhraseMixin, 
+        _AtPhraseMixin, 
+        _AfterEveryPhraseMixin, 
+        BaseSchedulePhrase
+    ):
     """
     A schedule phrase is a schedule that can be chained with other schedule phrases to create a complex schedule
     called a "schedule clause".
@@ -50,14 +55,15 @@ class RunOnWeekDay(SchedulePhrase):
         func()
         ```
         """
+        super().__init__(**kwargs)
         if weekday < 0 or weekday > 6:
             raise ValueError("'weekday' must be between 0 and 6")
         self.weekday = weekday
-        super().__init__(**kwargs)
+        return None
 
     
     def is_due(self) -> bool:
-        weekday_now = datetime.datetime.now().weekday()
+        weekday_now = datetime.datetime.now(tz=self.tz).weekday()
         if self.parent:
             return self.parent.is_due() and weekday_now == self.weekday
         return weekday_now == self.weekday
@@ -100,14 +106,15 @@ class RunOnDayOfMonth(SchedulePhrase):
         func()
         ```
         """
+        super().__init__(**kwargs)
         if day < 1 or day > 31:
             raise ValueError("'day' must be between 1 and 31")
         self.day = day
-        super().__init__(**kwargs)
+        return None
 
     
     def is_due(self) -> bool:
-        today = datetime.datetime.now().day
+        today = datetime.datetime.now(tz=self.tz).day
         if self.parent:
             return self.parent.is_due() and today == self.day
         return today == self.day
@@ -177,14 +184,10 @@ class _OnDayPhraseMixin(_OnWeekDayPhraseMixin, _OnDayOfMonthPhraseMixin):
 
 class RunFromSchedulePhrase(SchedulePhrase):
     """Base class for all "RunFrom..." schedule phrases."""
-    def __init__(self, _from: Any, _to: Any, tz: str | datetime.tzinfo, **kwargs):
+    def __init__(self, _from: Any, _to: Any, **kwargs):
         super().__init__(**kwargs)
         self._from = _from
         self._to = _to
-        self.tz = zoneinfo.ZoneInfo(tz) if tz and isinstance(tz, str) else tz
-        if not self.tz and self.parent:
-            if getattr(self.parent, "tz", None):
-                self.tz = self.parent.tz
         return None
 
 
@@ -192,13 +195,12 @@ class RunFromSchedulePhrase(SchedulePhrase):
 
 class RunFromWeekDay__To(RunFromSchedulePhrase):
     """Task will only run within the specified days of the week, every week."""
-    def __init__(self, *, _from: int, _to: int, tz: str | datetime.tzinfo = None, **kwargs):
+    def __init__(self, *, _from: int, _to: int, **kwargs):
         """
         Create a schedule that will only be due within the specified days of the week, every week.
 
         :param _from: The day of the week (0-6) from which the task will run. 0 is Monday and 6 is Sunday.
         :param _to: The day of the week (0-6) until which the task will run. 0 is Monday and 6 is Sunday.
-        :param tz: The timezone to use. If None, the local timezone will be used.
         
         Example:
         ```
@@ -216,12 +218,12 @@ class RunFromWeekDay__To(RunFromSchedulePhrase):
             raise ValueError("'_to' must be between 0 and 6")
         if _from == _to:
             raise ValueError("'_from' and '_to' cannot be the same")
-        super().__init__(_from, _to, tz, **kwargs)
+        super().__init__(_from, _to, **kwargs)
         
 
     
     def is_due(self):
-        weekday_now = datetime.datetime.now().weekday()
+        weekday_now = datetime.datetime.now(tz=self.tz).weekday()
         if self.parent:
             return self.parent.is_due() and weekday_now >= self._from and weekday_now <= self._to
         return weekday_now >= self._from and weekday_now <= self._to
@@ -248,13 +250,12 @@ class RunFromWeekDay__To(RunFromSchedulePhrase):
 
 class RunFromDayOfMonth__To(RunFromSchedulePhrase):
     """Task will only run within the specified days of the month, every month."""
-    def __init__(self, _from: int, _to: int, tz: str | datetime.tzinfo = None, **kwargs):
+    def __init__(self, _from: int, _to: int, **kwargs):
         """
         Create a schedule that will only be due within the specified days of the month, every month.
 
         :param _from: The day of the month (1-31) from which the task will run.
         :param _to: The day of the month (1-31) until which the task will run.
-        :param tz: The timezone to use. If None, the local timezone will be used.
 
         Example:
         ```
@@ -272,7 +273,7 @@ class RunFromDayOfMonth__To(RunFromSchedulePhrase):
             raise ValueError("'_to' must be between 1 and 31")
         if _from == _to:
             raise ValueError("'_from' and '_to' cannot be the same")
-        super().__init__(_from, _to, tz, **kwargs)             
+        super().__init__(_from, _to, **kwargs)             
 
     
     def is_due(self):
@@ -306,29 +307,27 @@ class RunFromDayOfMonth__To(RunFromSchedulePhrase):
 
 class _FromDayOfMonth__ToPhraseMixin:
     """Allows chaining of the "from_dayofmonth__to" phrase to other schedule phrases"""
-    def from_dayofmonth__to(self, _from: int, _to: int, tz: str | datetime.tzinfo = None):
+    def from_dayofmonth__to(self, _from: int, _to: int):
         """
         Task will only run within the specified days of the month, every month.
 
         :param _from: The day of the month (1-31) from which the task will run.
         :param _to: The day of the month (1-31) until which the task will run.
-        :param tz: The timezone to use. If None, the local timezone will be used.
         """
-        return RunFromDayOfMonth__To(_from=_from, _to=_to, tz=tz, parent=self)
+        return RunFromDayOfMonth__To(_from=_from, _to=_to, parent=self)
 
 
 
 class _FromWeekDay__ToPhraseMixin:
     """Allows chaining of the "from_weekday__to" phrase to other schedule phrases."""
-    def from_weekday__to(self, _from: int, _to: int, tz: str | datetime.tzinfo = None):
+    def from_weekday__to(self, _from: int, _to: int):
         """
         Task will only run within the specified days of the week, every week.
 
         :param _from: The day of the week (0-6) from which the task will run. 0 is Monday and 6 is Sunday.
         :param _to: The day of the week (0-6) until which the task will run. 0 is Monday and 6 is Sunday.
-        :param tz: The timezone to use. If None, the local timezone will be used.
         """
-        return RunFromWeekDay__To(_from=_from, _to=_to, tz=tz, parent=self)
+        return RunFromWeekDay__To(_from=_from, _to=_to, parent=self)
 
 
 
@@ -367,14 +366,15 @@ class RunInMonth(_FromDay__ToPhraseMixin, _OnDayPhraseMixin, SchedulePhrase):
         func()
         ```
         """
+        super().__init__(**kwargs)
         if month < 1 or month > 12:
             raise ValueError("'month' must be between 1 and 12")
         self.month = month
-        super().__init__(**kwargs)
+        return None
 
     
     def is_due(self) -> bool:
-        month_now = datetime.datetime.now().month
+        month_now = datetime.datetime.now(tz=self.tz).month
         if self.parent:
             return self.parent.is_due() and month_now == self.month
         return month_now == self.month
@@ -416,13 +416,12 @@ class _InMonthPhraseMixin:
 
 class RunFromMonth__To(_OnDayPhraseMixin, _FromDay__ToPhraseMixin, RunFromSchedulePhrase):
     """Task will only run within the specified months of the year, every year."""
-    def __init__(self, _from: int, _to: int, tz: str | datetime.tzinfo = None, **kwargs):
+    def __init__(self, _from: int, _to: int, **kwargs):
         """
         Create a schedule that will only be due within the specified months of the year, every year.
 
         :param _from: The month of the year (1-12) from which the task will run. 1 is January and 12 is December.
         :param _to: The month of the year (1-12) until which the task will run. 1 is January and 12 is December.
-        :param tz: The timezone to use. If None, the local timezone will be used.
 
         Example:
         ```
@@ -440,11 +439,11 @@ class RunFromMonth__To(_OnDayPhraseMixin, _FromDay__ToPhraseMixin, RunFromSchedu
             raise ValueError("'_to' must be between 1 and 12")
         if _from == _to:
             raise ValueError("'_from' and '_to' cannot be the same")
-        super().__init__(_from, _to, tz, **kwargs)
+        super().__init__(_from, _to, **kwargs)
 
     
     def is_due(self):
-        month_now = datetime.datetime.now().month
+        month_now = datetime.datetime.now(tz=self.tz).month
         if self.parent:
             return self.parent.is_due() and month_now >= self._from and month_now <= self._to
         return month_now >= self._from and month_now <= self._to
@@ -473,14 +472,14 @@ class RunFromMonth__To(_OnDayPhraseMixin, _FromDay__ToPhraseMixin, RunFromSchedu
 
 class _FromMonth__ToPhraseMixin:
     """Allows chaining of the "from_month__to" phrase to other schedule phrases."""
-    def from_month__to(self, _from: int, _to: int, tz: str | datetime.tzinfo = None):
+    def from_month__to(self, _from: int, _to: int):
         """
         Task will only run within the specified months of the year, every year.
 
         :param _from: The month of the year (1-12) from which the task will run. 1 is January and 12 is December.
         :param _to: The month of the year (1-12) until which the task will run. 1 is January and 12 is December.
         """
-        return RunFromMonth__To(_from=_from, _to=_to, tz=tz, parent=self)
+        return RunFromMonth__To(_from=_from, _to=_to, parent=self)
   
 
 ###################################### END MONTH-BASED PHRASES AND PHRASE-MIXINS ###########################################
@@ -502,7 +501,7 @@ class RunInYear(
         SchedulePhrase
     ):
     """Task will run in specified year"""
-    def __init__(self, year: int):
+    def __init__(self, year: int, **kwargs):
         """
         Create a schedule that will be due in the specified year.
 
@@ -518,14 +517,15 @@ class RunInYear(
         func()
         ```
         """
+        # RunInYear cannot have a parent. It is the highest schedule from which you can start chaining
+        kwargs.pop("parent", None)
+        super().__init__(**kwargs)
         self.year = year
-        # RunInYear cannot have a parent. 
-        # It is the highest schedule from which you can start chaining
-        super().__init__()
+        return None
 
     
     def is_due(self) -> bool:
-        year_now = datetime.datetime.now().year
+        year_now = datetime.datetime.now(tz=self.tz).year
         return year_now == self.year
 
 
@@ -548,13 +548,12 @@ class RunFromDateTime__To(
         RunFromSchedulePhrase
     ):
     """Task will only run within the specified date and time range."""
-    def __init__(self, _from: str, _to: str, tz: str | datetime.tzinfo = None):
+    def __init__(self, _from: str, _to: str, **kwargs):
         """
         Create a schedule that will only be due within the specified date and time.
 
         :param _from: The date and time from which the task will run.
         :param _to: The date and time until which the task will run.
-        :param tz: The timezone to use. If None, the local timezone will be used.
 
         Example:
         ```
@@ -566,7 +565,7 @@ class RunFromDateTime__To(
         func()
         ```
         """
-        super().__init__(_from, _to, tz)
+        super().__init__(_from, _to, **kwargs)
         self._from = _parse_datetime(dt=_from, tzinfo=self.tz)
         self._to = _parse_datetime(dt=_to, tzinfo=self.tz)
         if self._from > self._to:

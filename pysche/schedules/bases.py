@@ -134,11 +134,48 @@ class BaseSchedulePhrase(_GenericScheduleFuncMixin, Schedule):
     """
     def __init__(self, **kwargs):
         parent = kwargs.get("parent", None)
+        tz = kwargs.get("tz", None)
         if parent and not isinstance(parent, Schedule):
             raise TypeError("'parent' must be an instance of 'Schedule'")
+        
         self.parent = parent
+        self.tz = zoneinfo.ZoneInfo(tz) if tz and isinstance(tz, str) else tz
+        # If timezone is not set, use the timezone of the parent schedule phrase
+        if not self.tz and self.parent:
+            if getattr(self.parent, "tz", None):
+                self.tz = self.parent.tz
+        # If timezone is still not set, use the local timezone
+        if not self.tz:
+            self.tz = datetime.datetime.now().astimezone().tzinfo
         return None
+    
 
+    def get_ancestors(self):
+        """
+        Return a list of all previous schedule phrases this schedule phrase is chained to,
+        starting from the first schedule phrase in the chain.
+
+        Example:
+        ```python
+        run_in_march_from_mon_to_fri_at_12_30pm = RunInMonth(month=3).from_weekday__to(_from=0, _to=4).at("12:30:00")
+
+        print(run_in_march_from_mon_to_fri_at_12_30pm.get_ancestors())
+        # [RunInMonth(month=3), RunInMonth(month=3).RunFromWeekday__To(_from=0, _to=4)]
+        """
+        ancestors = []
+        if self.parent:
+            ancestors.append(self.parent)
+            ancestors.extend(self.parent.get_ancestors())
+        ancestors.reverse()
+        return ancestors
+    
+
+    def __repr__(self):
+        representation = f"{self.__class__.__name__}({', '.join([f'{k}={v}' for k, v in self.__dict__.items() if k != 'parent'])})"
+        # if self.parent:
+        #     representation = f"{"@".join([repr(ancestor) for ancestor in self.get_ancestors()])}.{representation}"
+        #     return ".".join(set(representation.split("@")))
+        return representation
 
 
 def _parse_time(time: str, tzinfo: datetime.tzinfo) -> datetime.time:
@@ -161,12 +198,11 @@ def _parse_time(time: str, tzinfo: datetime.tzinfo) -> datetime.time:
 
 class RunAt(BaseSchedulePhrase):
     """Task will run at the specified time, everyday"""
-    def __init__(self, time: str = None, tz: str | datetime.tzinfo = None, **kwargs):
+    def __init__(self, time: str = None, **kwargs):
         """
         Create a schedule that will be due at the specified time, everyday.
 
         :param time: The time to run the task. The time must be in the format, "HH:MM:SS".
-        :param tz: The timezone to use. If not specified, the local timezone will be used.
         
         Example:
         ```
@@ -178,10 +214,9 @@ class RunAt(BaseSchedulePhrase):
         func()
         ```
         """
-        tzinfo = zoneinfo.ZoneInfo(tz) if tz and isinstance(tz, str) else tz
-        self.time = _parse_time(time=time, tzinfo=tzinfo)
-        self.tz = tzinfo
         super().__init__(**kwargs)
+        self.time = _parse_time(time=time, tzinfo=self.tz)
+        return None
 
 
     def is_due(self) -> bool:
@@ -268,7 +303,7 @@ class RunAfterEvery(BaseSchedulePhrase):
                     await task.func(*args, **kwargs)
             return
 
-        schedule_func.__name__ = f"{task.name}_interval_func"
+        schedule_func.__name__ = task.name
         schedule_func.__qualname__ = schedule_func.__name__
         return schedule_func
 
@@ -276,14 +311,13 @@ class RunAfterEvery(BaseSchedulePhrase):
 
 class _AtPhraseMixin:
     """Allows chaining of the 'at' phrase to other schedule phrases."""
-    def at(self: Schedule, time: str, tz: str | datetime.tzinfo = None):
+    def at(self: Schedule, time: str, **kwargs):
         """
         Task will run at the specified time, everyday.
 
         :param time: The time to run the task. The time must be in the format, "HH:MM:SS".
-        :param tz: The timezone to use. If not specified, the local timezone will be used.
         """
-        return RunAt(time=time, tz=tz, parent=self)
+        return RunAt(time=time, parent=self, **kwargs)
 
 
 
@@ -334,13 +368,12 @@ class RunFrom__To(_AfterEveryPhraseMixin, BaseSchedulePhrase):
 
     This special schedule phrase is meant to be chained with the `afterevery` phrase.
     """
-    def __init__(self, *, _from: str, _to: str, tz: str | datetime.tzinfo = None, **kwargs):
+    def __init__(self, *, _from: str, _to: str, **kwargs):
         """
         Create a schedule that will only be due within the specified time frame, everyday.
 
         :param _from: The time to start running the task. The time must be in the format, "HH:MM:SS".
         :param _to: The time to stop running the task. The time must be in the format, "HH:MM:SS".
-        :param tz: The timezone to use. If not specified, the local timezone will be used.
 
         Example:
         ```
@@ -354,11 +387,6 @@ class RunFrom__To(_AfterEveryPhraseMixin, BaseSchedulePhrase):
         ```
         """
         super().__init__(**kwargs)
-        self.tz = zoneinfo.ZoneInfo(tz) if tz and isinstance(tz, str) else tz
-        if not self.tz and self.parent:
-            if getattr(self.parent, "tz", None):
-                self.tz = self.parent.tz
-
         self._from = _parse_time(time=_from, tzinfo=self.tz)
         self._to = _parse_time(time=_to, tzinfo=self.tz)
         if self._from > self._to:
@@ -390,12 +418,11 @@ class RunFrom__To(_AfterEveryPhraseMixin, BaseSchedulePhrase):
 
 class _From__ToPhraseMixin:
     """Allows chaining of the 'from__to' phrase to other schedule phrases."""
-    def from__to(self: Schedule, *, _from: str, _to: str, tz: str | datetime.tzinfo = None):
+    def from__to(self: Schedule, *, _from: str, _to: str):
         """
         Task will only run within the specified time frame, everyday.
 
         :param _from: The time to start running the task. The time must be in the format, "HH:MM:SS".
         :param _to: The time to stop running the task. The time must be in the format, "HH:MM:SS".
-        :param tz: The timezone to use. If not specified, the local timezone will be used.
         """
-        return RunFrom__To(_from=_from, _to=_to, tz=tz, parent=self)
+        return RunFrom__To(_from=_from, _to=_to, parent=self)
