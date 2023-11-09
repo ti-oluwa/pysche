@@ -60,7 +60,7 @@ class TaskManager:
         from .task import ScheduledTask
         if not isinstance(max_duplicates, int):
             raise TypeError("Max instances must be an integer")
-        self.name = name or f"{self.__class__.__name__.lower()}{id(self)}"
+        self.name = name or f"{self.__class__.__name__.lower()}_{str(id(self))[-6:]}"
         self._tasks: List[ScheduledTask] = []
         self._futures: List[asyncio.Task] = []
         self._continue = False
@@ -82,6 +82,11 @@ class TaskManager:
     def __del__(self):
         self.shutdown()
         return None
+    
+    @property
+    def has_started(self):
+        """Returns True if the task manager has started executing tasks"""
+        return self._continue and self._loop.is_running()
     
     @property
     def tasks(self):
@@ -109,11 +114,11 @@ class TaskManager:
     
     @property
     def is_busy(self):
-        """Returns True if the task manager has started executing tasks"""
-        return self.thread and self.thread.is_alive()
+        """Returns True if the task manager is executing any task"""
+        return any([ task.is_running for task in self.tasks ])
     
 
-    def _get_futures(self, name: str)-> List[asyncio.Task]:
+    def _get_futures(self, name: str) -> List[asyncio.Task]:
         """Returns a list of futures with the specified name"""
         matches = []
         for future in self._futures:
@@ -138,7 +143,7 @@ class TaskManager:
         :kwargs: keyword arguments to pass to function
         """
         if not callable(fn):
-            TypeError("'fn' must be a callable")
+            raise TypeError("'fn' must be a callable")
         
         @functools.wraps(fn)
         async def async_fn(*args, **kwargs):
@@ -233,16 +238,11 @@ class TaskManager:
         """
         from .schedules.bases import RunAfterEvery
         from .task import ScheduledTask
-        # Wrap function such that we stop the time task by raising
-        # an asyncio.CancelledError (which will break the scheduled task loop) 
-        # after the function has finished executing
+        # Wraps function such that the function runs once and then the task is cancelled
         @functools.wraps(func)
         def _wrapper(*args, **kwargs):
             try:
                 func(*args, **kwargs)
-                raise asyncio.CancelledError
-            except:
-                raise
             finally:
                 _wrapper.task.cancel()
         
@@ -259,6 +259,7 @@ class TaskManager:
         )
         _wrapper.task = task
         task.start()
+        print("Started")
         return None
     
 
@@ -282,16 +283,11 @@ class TaskManager:
         """
         from .schedules.bases import RunAt
         from .task import ScheduledTask
-        # Wrap function such that we stop the time task by raising
-        # an asyncio.CancelledError (which will break the scheduled task loop) 
-        # after the function has finished executing
+        # Wraps function such that the function runs once and then the task is cancelled
         @functools.wraps(func)
         def _wrapper(*args, **kwargs):
             try:
                 func(*args, **kwargs)
-                raise asyncio.CancelledError
-            except:
-                raise
             finally:
                 _wrapper.task.cancel()
         
@@ -361,6 +357,7 @@ class TaskManager:
         # the tasks added before runtime have finished running.
         self._loop.run_forever()
         if not self._futures:
+            sys.stderr.write("here")
             return
         # run tasks that were added before runtime until they finish running
         self._loop.run_until_complete(asyncio.gather(*self._futures))
@@ -369,8 +366,8 @@ class TaskManager:
 
     def start(self):
         """Start executing all scheduled tasks"""
-        if self.is_busy:
-            raise RuntimeWarning(f"{self.name} has already started executing tasks.\n")
+        if self.has_started:
+            raise RuntimeWarning(f"{self.name} has already started task execution.\n")
         
         self._continue = True # allows all ScheduleTasks to run
         name = f"{self.name}-workthread"
@@ -387,8 +384,9 @@ class TaskManager:
         This method blocks the current thread until all tasks are no longer running.
         """
         try:
-            for task in self.tasks:
-                task.join()
+            while self.is_busy:
+                print("here")
+                continue
         except KeyboardInterrupt:
             self.stop()
         return None
@@ -398,8 +396,8 @@ class TaskManager:
         """
         Stop executing all scheduled tasks.
         """
-        if not self.is_busy:
-            raise RuntimeWarning(f"{self.name} has not started executing tasks yet.\n")
+        if not self.has_started:
+            raise RuntimeWarning(f"{self.name} has not started task execution yet.\n")
 
         self._continue = False # Stops all ScheduledTasks from running
         # stop the loop also
@@ -411,23 +409,23 @@ class TaskManager:
 
     def stop_after(self, delay: int | float):
         """Stop the execution of all scheduled tasks after a specified number of seconds"""
-        if not self.is_busy:
-            raise RuntimeWarning(f"{self.name} has not started executing tasks yet.\n")
+        if not self.has_started:
+            raise RuntimeWarning(f"{self.name} has not started task execution yet.\n")
         self.run_after(delay, self.stop, task_name=f"stop_{self.name}_after_{delay}seconds")
         return None
     
 
     def stop_at(self, time: str):
         """Stop the execution of all scheduled tasks at a specified time. Time must be in the format 'HH:MM:SS'"""
-        if not self.is_busy:
-            raise RuntimeWarning(f"{self.name} has not started executing tasks yet.\n")
+        if not self.has_started:
+            raise RuntimeWarning(f"{self.name} has not started task execution yet.\n")
         self.run_at(time, self.stop, task_name=f"stop_{self.name}_at_{time}")
         return None
 
     
     def restart(self):
         """Quick way to restart all tasks"""
-        if self.is_busy:
+        if self.has_started:
             self.stop()
         self.start()
         return None
@@ -438,10 +436,11 @@ class TaskManager:
         Cancel all tasks and shutdown.
         This method should be called when the task manager is no longer needed.
         """
-        if self.is_busy:
+        if self.has_started:
             self.stop()
         for task in self.tasks:
             task.cancel()
+
         self._executor.shutdown(wait=True, cancel_futures=True)
         self._loop.close()
         return None

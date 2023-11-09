@@ -1,11 +1,11 @@
 import uuid
 import asyncio
-import threading
 import sys
 import time
 from typing import Callable, Any, Iterable, Mapping
 import functools
 import traceback
+import datetime
 
 from .manager import TaskManager
 from .schedules.bases import Schedule
@@ -81,11 +81,13 @@ class ScheduledTask:
         if not isinstance(manager, TaskManager):
             raise TypeError("Invalid type for 'manager'. Should be TaskScheduler")
         
-        self._id = uuid.uuid4().hex
+        self._id = uuid.uuid4().hex[-6:]
         self.__init_manager__ = manager
         func = self._wrap_func_for_time_stats(func)
         self.func = self.manager._make_asyncable(func)
         self.name = name or self.func.__name__
+        self.__name__ = self.name
+        self.__qualname__ = self.name
 
         if abs(self.manager.max_duplicates) == self.manager.max_duplicates: # If positive
             siblings = self.manager.get_tasks(self.name)
@@ -102,7 +104,7 @@ class ScheduledTask:
         self._is_paused = False
         self._failed = False
         self._errors = []
-        self._lock = threading.Lock()
+        self._last_ran_at: datetime.datetime = None
         self._logger = _TaskLogger(self)
         self.manager._tasks.append(self)
         if start_immediately:
@@ -141,6 +143,12 @@ class ScheduledTask:
     def errors(self):
         """Returns a list of errors"""
         return self._errors
+    
+    @property
+    def last_ran_at(self):
+        """Returns the last time the task ran"""
+        return self._last_ran_at
+    
 
     def __setattr__(self, __name: str, __value: Any) -> None:
         if __name == "__init_manager__" and self.__init_manager__ is not None:
@@ -163,11 +171,12 @@ class ScheduledTask:
 
             try:
                 await schedule_func(*self.args, **self.kwargs)
-            except (SystemExit, KeyboardInterrupt, asyncio.CancelledError, RuntimeError):
+            except (SystemExit, KeyboardInterrupt, asyncio.CancelledError, RuntimeError) as exc:
                 break
             except Exception as exc:
                 self._errors.append(exc)
                 self.log(f"{exc}\n", err_trace=traceback.format_exc(), level="ERROR")
+
                 if self.stop_on_error or err_count >= self.max_retry:
                     self._failed = True
                     self._is_running = False
@@ -182,7 +191,8 @@ class ScheduledTask:
 
     
     def __repr__(self) -> str:
-        return f"<{self.__class__.__name__} name='{self.name}' id='{self.id}' {'failed ' if self.failed else ''}{'paused ' if self.is_paused else ''}{'running ' if self.is_running else ''}func='{self.func.__name__}' manager={self.manager.name}>"
+        status = "failed" if self.failed else "paused" if self.is_paused else "running" if self.is_running else "stopped" if self.last_ran_at else "pending"
+        return f"<{self.__class__.__name__} {status} name='{self.name}' id='{self.id}' func='{self.func.__name__}' manager='{self.manager.name}'>"
     
 
     def _wrap_func_for_time_stats(self, func: Callable):
@@ -230,7 +240,6 @@ class ScheduledTask:
         """Re-run failed task"""
         if not self.failed:
             raise RuntimeWarning(f"Cannot rerun '{self.name}'. '{self.name}' has not failed.")
-
         self._failed = False
         self.manager._make_future(self)
         return None
@@ -250,7 +259,6 @@ class ScheduledTask:
         """Pause task. Stops task from running, temporarily"""
         if self.is_paused:
             raise RuntimeWarning(f"Cannot pause '{self.name}'. '{self.name}' is already paused.")
-        
         self._is_paused = True
         self.log("Paused.\n")
         return None
@@ -319,12 +327,14 @@ class ScheduledTask:
         Note that cancelling a task will not stop the manager from executing other tasks.
         """
         task_future = self.manager._get_future(self.id)
-        if not task_future:
-            raise RuntimeError(f"{self.__class__.__name__}: Cannot find future '{self.id}'in manager. '_tasks' is out of sync with '_futures'.\n")
+        # If task is running or has run before and a future cannot 
+        # be found for the task then `manager._futures` has been tampered with.
+        # Raise a runtime error for this
+        if not task_future and (self.is_running or self.last_ran_at):
+            raise RuntimeError(f"{self.__class__.__name__}: Cannot find future '{self.id}' in manager. '_tasks' is out of sync with '_futures'.\n")
         
-        if self.is_running:
-            self.manager._loop.call_soon_threadsafe(task_future.cancel)
-            self.join()
+        self.manager._loop.call_soon_threadsafe(task_future.cancel)
+        self.join() # Wait for task to finish running, if it is still running
         self.manager._tasks.remove(self)
         self.manager._futures.remove(task_future)
         del task_future

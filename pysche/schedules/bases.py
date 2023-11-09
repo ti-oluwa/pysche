@@ -103,8 +103,8 @@ class _GenericScheduleFuncMixin:
                 # is used in a loop. To prevent task.func from running multiple times, 
                 # check if task.func has run and set the 'has_run' attribute to True if it has been run.
                 if not task.func.has_run:
-                    with task._lock:
-                        await task.func(*args, **kwargs)
+                    task._last_ran_at = datetime.datetime.now(tz=self.tz)
+                    await task.func(*args, **kwargs)
                     task.func.has_run = True
             else:
                 # Reset the 'has_run' attribute to False if the scheduled time (HH:MM:SS) 
@@ -299,8 +299,8 @@ class RunAfterEvery(BaseSchedulePhrase):
                         task.func.has_been_done_first = True
             if await schedule_is_due():
                 await asyncio.sleep(self.delay)
-                with task._lock:
-                    await task.func(*args, **kwargs)
+                task._last_ran_at = datetime.datetime.now(tz=self.tz)
+                await task.func(*args, **kwargs)
             return
 
         schedule_func.__name__ = task.name
