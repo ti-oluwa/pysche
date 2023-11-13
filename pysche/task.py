@@ -149,6 +149,11 @@ class ScheduledTask:
         """Returns the last time the task ran"""
         return self._last_ran_at
     
+    @property
+    def status(self):
+        """Returns the status of the task"""
+        return "failed" if self.failed else "paused" if self.is_paused else "running" if self.is_running else "stopped" if self.last_ran_at else "pending"
+    
 
     def __setattr__(self, __name: str, __value: Any) -> None:
         if __name == "__init_manager__" and self.__init_manager__ is not None:
@@ -191,8 +196,7 @@ class ScheduledTask:
 
     
     def __repr__(self) -> str:
-        status = "failed" if self.failed else "paused" if self.is_paused else "running" if self.is_running else "stopped" if self.last_ran_at else "pending"
-        return f"<{self.__class__.__name__} {status} name='{self.name}' id='{self.id}' func='{self.func.__name__}' manager='{self.manager.name}'>"
+        return f"<{self.__class__.__name__} {self.status} name='{self.name}' func='{self.func.__name__}'>"
     
 
     def _wrap_func_for_time_stats(self, func: Callable):
@@ -232,7 +236,12 @@ class ScheduledTask:
             # Task starts automatically if manager is already running 
             # else, it waits for the manager to start
             future = self.manager._make_future(self)
+            if not getattr(future, "id", None) == self.id:
+                raise RuntimeError(f"Invalid Future object for '{self.name}'.\n")
+            
             self.manager._futures.append(future)
+            # Give the task a chance to start running
+            time.sleep(0.01)
         return None
 
 
@@ -327,17 +336,19 @@ class ScheduledTask:
         Note that cancelling a task will not stop the manager from executing other tasks.
         """
         task_future = self.manager._get_future(self.id)
-        # If task is running or has run before and a future cannot 
-        # be found for the task then `manager._futures` has been tampered with.
-        # Raise a runtime error for this
-        if not task_future and (self.is_running or self.last_ran_at):
-            raise RuntimeError(f"{self.__class__.__name__}: Cannot find future '{self.id}' in manager. '_tasks' is out of sync with '_futures'.\n")
-        
-        self.manager._loop.call_soon_threadsafe(task_future.cancel)
-        self.join() # Wait for task to finish running, if it is still running
+        if task_future is None:
+            if self.is_running or self.last_ran_at:
+                # If task is running or has run before and a future cannot 
+                # be found for the task then `manager._futures` has been tampered with.
+                # Raise a runtime error for this
+                raise RuntimeError(f"{self.__class__.__name__}: Cannot find future '{self.id}' in manager. '_tasks' is out of sync with '_futures'.\n")
+        else: 
+            self.manager._loop.call_soon_threadsafe(task_future.cancel)
+            self.join() # Wait for task to finish running, if it is still running
+            self.manager._futures.remove(task_future)
+            del task_future
+
         self.manager._tasks.remove(self)
-        self.manager._futures.remove(task_future)
-        del task_future
         self.log("Cancelled.\n")
         del self
         return None

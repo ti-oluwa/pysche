@@ -1,12 +1,13 @@
+import datetime
 import sys
 import threading
 from typing import Any, Callable, Iterable, List, Mapping
 import asyncio
 import time
 import functools
-from concurrent.futures import CancelledError, ThreadPoolExecutor
+from concurrent.futures import CancelledError, ThreadPoolExecutor, Future
 from bs4_web_scraper.logger import Logger
-
+import queue
 
 
 class UnregisteredTask(Exception):
@@ -62,10 +63,11 @@ class TaskManager:
             raise TypeError("Max instances must be an integer")
         self.name = name or f"{self.__class__.__name__.lower()}_{str(id(self))[-6:]}"
         self._tasks: List[ScheduledTask] = []
-        self._futures: List[asyncio.Task] = []
+        self._futures: List[Future] = []
         self._continue = False
-        self._work_thread = None
         self._loop = asyncio.new_event_loop()
+        self._loop.set_debug(True)
+        self._work_thread = None
         self._executor = ThreadPoolExecutor()
         self._work_thread = None
         self.max_duplicates = max_duplicates
@@ -77,7 +79,7 @@ class TaskManager:
         return None
     
     def __repr__(self):
-        return f"<{self.__class__.__name__} tasks={self.tasks}>"
+        return f"<{self.__class__.__name__} {self.status} name='{self.name}' tasks={self.tasks}>"
     
     def __del__(self):
         self.shutdown()
@@ -114,8 +116,12 @@ class TaskManager:
     
     @property
     def is_busy(self):
-        """Returns True if the task manager is executing any task"""
+        """Returns True if the task manager is currently executing any task"""
         return any([ task.is_running for task in self.tasks ])
+    
+    @property
+    def status(self):
+        return "busy" if self.is_busy else "idle"
     
 
     def _get_futures(self, name: str) -> List[asyncio.Task]:
@@ -155,11 +161,10 @@ class TaskManager:
                 raise asyncio.CancelledError(exc)
         return async_fn
     
-    
-    def _make_future(self, task):
-        """Returns an asyncio.Task for a scheduled task."""
-        future = self._loop.create_task(task(), name=task.name)
-        future.id = task.id
+
+    def _make_future(self, scheduledtask):
+        future = asyncio.run_coroutine_threadsafe(scheduledtask(), self._loop)
+        future.id = scheduledtask.id
         return future
     
 
@@ -259,14 +264,15 @@ class TaskManager:
         )
         _wrapper.task = task
         task.start()
-        print("Started")
         return None
     
 
     def run_at(
             self, 
             time: str, 
-            func: Callable, *,
+            func: Callable,
+            tz: str | datetime.tzinfo = None,
+             *,
             args: Iterable[Any] = (), 
             kwargs: Mapping[str, Any] = {}, 
             task_name: str = None
@@ -276,6 +282,7 @@ class TaskManager:
 
         :param time: The time to run the function. Must be in the format 'HH:MM:SS'
         :param func: The function to run as a task
+        :param tz: The timezone to use when running the function. Defaults to local timezone.
         :param args: The arguments to pass to the function
         :param kwargs: The keyword arguments to pass to the function
         :param task_name: The name to give the task created to run the function. 
@@ -298,7 +305,7 @@ class TaskManager:
             raise ValueError("Invalid time format. Time must be in the format 'HH:MM:SS'")
         task = ScheduledTask(
             func=_wrapper,
-            schedule=RunAt(hour=hr, minute=min, second=sec),
+            schedule=RunAt(time=time, tz=tz),
             manager=self,
             args=args,
             kwargs=kwargs,
@@ -349,18 +356,12 @@ class TaskManager:
             if task.failed:
                 failed_tasks.append(task)
         return failed_tasks
-    
 
-    def _start(self):
-        """Start event loop and run currently available tasks"""
-        # run loop forever because we want tasks added at runtime to still run/continue running even if 
-        # the tasks added before runtime have finished running.
+
+    def _start_work(self):
+        """Start the event loop in the work thread and begin running all scheduled tasks"""
+        asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
-        if not self._futures:
-            sys.stderr.write("here")
-            return
-        # run tasks that were added before runtime until they finish running
-        self._loop.run_until_complete(asyncio.gather(*self._futures))
         return None
 
 
@@ -370,11 +371,9 @@ class TaskManager:
             raise RuntimeWarning(f"{self.name} has already started task execution.\n")
         
         self._continue = True # allows all ScheduleTasks to run
-        name = f"{self.name}-workthread"
-        self._work_thread = threading.Thread(target=self._start, daemon=True, name=name)
+        self._work_thread = threading.Thread(target=self._start_work, daemon=True, name=f"{self.name}-workthread")
         self.thread.start()
-        # Allow little time for the tasks to start running
-        time.sleep(0.1)
+        time.sleep(0.01)
         return None
 
 
@@ -383,9 +382,10 @@ class TaskManager:
         Wait for this manager to finish executing all scheduled tasks.
         This method blocks the current thread until all tasks are no longer running.
         """
+        if not self.has_started:
+            raise RuntimeError(f"{self.name} has not started task execution yet. Cannot join.\n")
         try:
             while self.is_busy:
-                print("here")
                 continue
         except KeyboardInterrupt:
             self.stop()
@@ -418,7 +418,7 @@ class TaskManager:
     def stop_at(self, time: str):
         """Stop the execution of all scheduled tasks at a specified time. Time must be in the format 'HH:MM:SS'"""
         if not self.has_started:
-            raise RuntimeWarning(f"{self.name} has not started task execution yet.\n")
+            raise RuntimeWarning(f"{self.name} has not started task execution yet. Y\n")
         self.run_at(time, self.stop, task_name=f"stop_{self.name}_at_{time}")
         return None
 
@@ -441,6 +441,6 @@ class TaskManager:
         for task in self.tasks:
             task.cancel()
 
+        self._loop.call_soon_threadsafe(self._loop.close)
         self._executor.shutdown(wait=True, cancel_futures=True)
-        self._loop.close()
         return None

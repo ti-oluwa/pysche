@@ -249,6 +249,10 @@ class RunAfterEvery(BaseSchedulePhrase):
         :param weeks: The number of weeks.
         :param days: The number of days.
         :param hours: The number of hours.
+        :param minutes: The number of minutes.
+        :param seconds: The number of seconds.
+        :param milliseconds: The number of milliseconds.
+        :param microseconds: The number of microseconds.
 
         Example:
         ```
