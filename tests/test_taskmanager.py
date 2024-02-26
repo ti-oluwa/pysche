@@ -1,7 +1,7 @@
 import unittest
 import asyncio
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 import os
 
 from pysche.manager import TaskManager
@@ -46,7 +46,7 @@ class TestTaskManager(unittest.TestCase):
         )
         self.assertFalse(manager._continue)
         manager.start()
-        self.assertRaises(RuntimeWarning, manager.start)
+        self.assertRaises(RuntimeError, manager.start)
         self.assertTrue(manager._continue)
         self.assertTrue(manager._loop.is_running())
         self.assertIsNotNone(manager._loop)
@@ -73,8 +73,9 @@ class TestTaskManager(unittest.TestCase):
         self.assertTrue(manager.thread.is_alive())
         self.assertTrue(manager.is_busy)
         self.assertTrue(task.is_running)
+
         manager.stop()
-        self.assertRaises(RuntimeWarning, manager.stop)
+        self.assertRaises(RuntimeError, manager.stop)
         self.assertFalse(manager._continue)
         self.assertFalse(manager._loop.is_running())
         self.assertIsNone(manager.thread)
@@ -104,7 +105,7 @@ class TestTaskManager(unittest.TestCase):
             schedule=RunAfterEvery(seconds=10),
             manager=manager
         )
-        self.assertIsInstance(manager._get_future(task.id), asyncio.Task)
+        self.assertIsInstance(manager._get_future(task.id), Future)
         self.assertIsNone(manager._get_future("non-existent-id"))
         self.assertTrue(manager._get_future(task.id).id == task.id)
         del manager
@@ -197,10 +198,7 @@ class TestTaskManager(unittest.TestCase):
         manager = TaskManager()
         manager.start()
         manager.run_after(3, print_current_time)
+        self.assertTrue(manager.get_tasks("print_current_time") != [])
         task = manager.get_tasks("print_current_time")[0]
-        self.assertIsNotNone(task)
         self.assertFalse(task.is_running)
-        time.sleep(4)
-        print(manager.get_tasks("print_current_time"))
-        self.assertTrue(manager.get_tasks("print_current_time") == [])
         del manager

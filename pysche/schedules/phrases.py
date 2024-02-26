@@ -1,32 +1,29 @@
 import datetime
-try:
-    import zoneinfo
-except ImportError:
-    from backports import zoneinfo
 from typing import Any
 
 from .bases import (
-    BaseSchedulePhrase, 
-    _AtPhraseMixin, 
-    _AfterEveryPhraseMixin, 
-    _From__ToPhraseMixin, 
+    BaseSchedulePhrase, _AtPhraseMixin, 
+    _AfterEveryPhraseMixin, _From__ToPhraseMixin, 
+    RunAfterEvery
 )
-
+from .._utils import SetOnceDescriptor, parse_datetime
 
 
 class SchedulePhrase(
-        _From__ToPhraseMixin, 
-        _AtPhraseMixin, 
-        _AfterEveryPhraseMixin, 
-        BaseSchedulePhrase
-    ):
+    _From__ToPhraseMixin, 
+    _AtPhraseMixin, 
+    _AfterEveryPhraseMixin, 
+    BaseSchedulePhrase
+):
     """
     A schedule phrase is a schedule that can be chained with other schedule phrases to create a complex schedule
     called a "schedule clause".
 
     Example:
     ```python
-    run_on_nov_4_from_2_30_to_2_35_afterevery_5s = RunInMonth(month=11).on_day_of_month(day=4).from__to(from_hour=2, from_minute=30, to_hour=2, to_minute=35).afterevery(seconds=5)
+    run_on_4th_november_from_2_30_to_2_35_afterevery_5s = RunInMonth(month=11).on_day_of_month(day=4).from__to(
+        _from="14:30:00", _to="14:35:00"
+    ).afterevery(seconds=5)
     ```
     """
     pass
@@ -37,8 +34,27 @@ class SchedulePhrase(
 
 ################################ DAY-BASED "RunOn..." PHRASES AND PHRASE-MIXINS ###########################################
 
-class RunOnWeekDay(SchedulePhrase):
+class _HMSAfterEveryPhraseMixin(_AfterEveryPhraseMixin):
+    """Overrides the "afterevery" method to allow only hours, minutes, and seconds arguments."""
+    def afterevery(
+        self, 
+        *, 
+        hours: int = 0, 
+        minutes: int = 0, 
+        seconds: int = 0, 
+    ) -> RunAfterEvery:
+        return super().afterevery(
+            hours=hours, 
+            minutes=minutes, 
+            seconds=seconds
+        )
+
+
+
+class RunOnWeekDay(_HMSAfterEveryPhraseMixin, SchedulePhrase):
     """Task will run on the specified day of the week, every week."""
+    weekday = SetOnceDescriptor(attr_type=int, validators=[lambda x: 0 <= x <= 6])
+
     def __init__(self, weekday: int, **kwargs):
         """
         Create a schedule that will be due on the specified day of the week, every week.
@@ -48,7 +64,7 @@ class RunOnWeekDay(SchedulePhrase):
         Example:
         ```
         run_on_mondays = RunOnWeekDay(weekday=0)
-        @run_on_mondays(manager=task_manager, **kwargs)
+        @run_on_mondays.afterevery(minutes=10)(manager=task_manager, **kwargs)
         def func():
             print("Hello world!")
 
@@ -56,40 +72,23 @@ class RunOnWeekDay(SchedulePhrase):
         ```
         """
         super().__init__(**kwargs)
-        if weekday < 0 or weekday > 6:
-            raise ValueError("'weekday' must be between 0 and 6")
         self.weekday = weekday
         return None
 
     
     def is_due(self) -> bool:
         weekday_now = datetime.datetime.now(tz=self.tz).weekday()
+        is_due = weekday_now == self.weekday
         if self.parent:
-            return self.parent.is_due() and weekday_now == self.weekday
-        return weekday_now == self.weekday
-
-
-    def afterevery(
-            self, 
-            *, 
-            hours: int = 0, 
-            minutes: int = 0, 
-            seconds: int = 0, 
-            milliseconds: int = 0, 
-            microseconds: int = 0
-        ):
-        return super().afterevery(
-            hours=hours, 
-            minutes=minutes, 
-            seconds=seconds, 
-            milliseconds=milliseconds, 
-            microseconds=microseconds
-        )
+            return self.parent.is_due() and is_due
+        return is_due
 
 
 
-class RunOnDayOfMonth(SchedulePhrase):
+class RunOnDayOfMonth(_HMSAfterEveryPhraseMixin, SchedulePhrase):
     """Task will run on the specified day of the month, every month."""
+    day = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 31])
+
     def __init__(self, day: int, **kwargs):
         """
         Create a schedule that will be due on the specified day of the month, every month.
@@ -98,8 +97,8 @@ class RunOnDayOfMonth(SchedulePhrase):
 
         Example:
         ```
-        run_on_1st_of_month = RunOnDayOfMonth(day=1)
-        @run_on_1st_of_month(manager=task_manager, **kwargs)
+        run_on_1st_of_every_month = RunOnDayOfMonth(day=1)
+        @run_on_1st_of_every_month.at("14:21:00")(manager=task_manager, **kwargs)
         def func():
             print("Hello world!")
          
@@ -107,35 +106,16 @@ class RunOnDayOfMonth(SchedulePhrase):
         ```
         """
         super().__init__(**kwargs)
-        if day < 1 or day > 31:
-            raise ValueError("'day' must be between 1 and 31")
         self.day = day
         return None
 
     
     def is_due(self) -> bool:
         today = datetime.datetime.now(tz=self.tz).day
+        is_due = today == self.day
         if self.parent:
-            return self.parent.is_due() and today == self.day
-        return today == self.day
-
-
-    def afterevery(
-            self, 
-            *, 
-            hours: int = 0, 
-            minutes: int = 0, 
-            seconds: int = 0, 
-            milliseconds: int = 0, 
-            microseconds: int = 0
-        ):
-        return super().afterevery(
-            hours=hours, 
-            minutes=minutes, 
-            seconds=seconds, 
-            milliseconds=milliseconds, 
-            microseconds=microseconds
-        )
+            return self.parent.is_due() and is_due
+        return is_due
 
 
 
@@ -184,6 +164,9 @@ class _OnDayPhraseMixin(_OnWeekDayPhraseMixin, _OnDayOfMonthPhraseMixin):
 
 class RunFromSchedulePhrase(SchedulePhrase):
     """Base class for all "RunFrom..." schedule phrases."""
+    _from = SetOnceDescriptor(attr_type=Any)
+    _to = SetOnceDescriptor(attr_type=Any)
+
     def __init__(self, _from: Any, _to: Any, **kwargs):
         super().__init__(**kwargs)
         self._from = _from
@@ -193,8 +176,11 @@ class RunFromSchedulePhrase(SchedulePhrase):
 
 
 
-class RunFromWeekDay__To(RunFromSchedulePhrase):
+class RunFromWeekDay__To(_HMSAfterEveryPhraseMixin, RunFromSchedulePhrase):
     """Task will only run within the specified days of the week, every week."""
+    _from = SetOnceDescriptor(attr_type=int, validators=[lambda x: 0 <= x <= 6])
+    _to = SetOnceDescriptor(attr_type=int, validators=[lambda x: 0 <= x <= 6])
+
     def __init__(self, *, _from: int, _to: int, **kwargs):
         """
         Create a schedule that will only be due within the specified days of the week, every week.
@@ -205,51 +191,33 @@ class RunFromWeekDay__To(RunFromSchedulePhrase):
         Example:
         ```
         run_from_monday_to_friday = RunFromWeekDay__To(_from=0, _to=4)
-        @run_from_monday_to_friday(manager=task_manager, **kwargs)
+        @run_from_monday_to_friday.at("11:00:00")(manager=task_manager, **kwargs)
         def func():
             print("Hello world!")
 
         func()
         ```
         """
-        if _from < 0 or _from > 6:
-            raise ValueError("'_from' must be between 0 and 6")
-        if _to < 0 or _to > 6:
-            raise ValueError("'_to' must be between 0 and 6")
         if _from == _to:
             raise ValueError("'_from' and '_to' cannot be the same")
         super().__init__(_from, _to, **kwargs)
         
 
     
-    def is_due(self):
+    def is_due(self) -> bool:
         weekday_now = datetime.datetime.now(tz=self.tz).weekday()
+        is_due = weekday_now >= self._from and weekday_now <= self._to
         if self.parent:
-            return self.parent.is_due() and weekday_now >= self._from and weekday_now <= self._to
-        return weekday_now >= self._from and weekday_now <= self._to
-
-
-    def afterevery(
-            self,
-            *,
-            hours: int = 0,
-            minutes: int = 0,
-            seconds: int = 0,
-            milliseconds: int = 0,
-            microseconds: int = 0
-        ):
-        return super().afterevery(
-            hours=hours,
-            minutes=minutes,
-            seconds=seconds,
-            milliseconds=milliseconds,
-            microseconds=microseconds
-        )
+            return self.parent.is_due() and is_due
+        return is_due
 
 
 
-class RunFromDayOfMonth__To(RunFromSchedulePhrase):
+class RunFromDayOfMonth__To(_HMSAfterEveryPhraseMixin, RunFromSchedulePhrase):
     """Task will only run within the specified days of the month, every month."""
+    _from = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 31])
+    _to = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 31])
+
     def __init__(self, _from: int, _to: int, **kwargs):
         """
         Create a schedule that will only be due within the specified days of the month, every month.
@@ -259,46 +227,25 @@ class RunFromDayOfMonth__To(RunFromSchedulePhrase):
 
         Example:
         ```
-        run_from_1st_to_5th_of_month = RunFromDayOfMonth__To(_from=1, _to=5)
-        @run_from_1st_to_5th_of_month(manager=task_manager, **kwargs)
+        run_from_1st_to_5th_of_every_month = RunFromDayOfMonth__To(_from=1, _to=5)
+        @run_from_1st_to_5th_of_every_month.at("00:00:00")(manager=task_manager, **kwargs)
         def func():
             print("Hello world!")
 
         func()
         ```
         """
-        if _from < 1 or _from > 31:
-            raise ValueError("'_from' must be between 1 and 31")
-        if _to < 1 or _to > 31:
-            raise ValueError("'_to' must be between 1 and 31")
         if _from == _to:
             raise ValueError("'_from' and '_to' cannot be the same")
         super().__init__(_from, _to, **kwargs)             
 
     
-    def is_due(self):
+    def is_due(self) -> bool:
         today = datetime.datetime.now(tz=self.tz).day
+        is_due = today >= self._from and today <= self._to
         if self.parent:
-            return self.parent.is_due() and today >= self._from and today <= self._to
-        return today >= self._from and today <= self._to
-    
-
-    def afterevery(
-            self,
-            *,
-            hours: int = 0,
-            minutes: int = 0,
-            seconds: int = 0,
-            milliseconds: int = 0,
-            microseconds: int = 0
-        ):
-        return super().afterevery(
-            hours=hours,
-            minutes=minutes,
-            seconds=seconds,
-            milliseconds=milliseconds,
-            microseconds=microseconds
-        )
+            return self.parent.is_due() and is_due
+        return is_due
 
 
 
@@ -348,8 +295,34 @@ class _FromDay__ToPhraseMixin(_FromDayOfMonth__ToPhraseMixin, _FromWeekDay__ToPh
 
 ###################################### MONTH-BASED PHRASES AND PHRASE-MIXINS ###########################################
 
-class RunInMonth(_FromDay__ToPhraseMixin, _OnDayPhraseMixin, SchedulePhrase):
+class _DHMSAfterEveryPhraseMixin(_AfterEveryPhraseMixin):
+    """Overrides the "afterevery" method to allow only days, hours, minutes, and seconds arguments."""
+    def afterevery(
+        self, 
+        *, 
+        days: int = 0,
+        hours: int = 0, 
+        minutes: int = 0, 
+        seconds: int = 0, 
+    ) -> RunAfterEvery:
+        return super().afterevery(
+            days=days,
+            hours=hours, 
+            minutes=minutes, 
+            seconds=seconds
+        )
+    
+
+
+class RunInMonth(
+    _DHMSAfterEveryPhraseMixin, 
+    _FromDay__ToPhraseMixin, 
+    _OnDayPhraseMixin, 
+    SchedulePhrase
+):
     """Task will run in specified month of the year, every year"""
+    month = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 12])
+
     def __init__(self, month: int, **kwargs):
         """
         Create a schedule that will be due in a specific month of the year, every year.
@@ -358,8 +331,14 @@ class RunInMonth(_FromDay__ToPhraseMixin, _OnDayPhraseMixin, SchedulePhrase):
 
         Example:
         ```
-        run_in_january = RunInMonth(month=1)
-        @run_in_january(manager=task_manager, **kwargs)
+        run_every_january = RunInMonth(month=1)
+        @run_every_january.from_weekday__to(
+            _from=2
+            _to=6
+        )
+        .at("06:00:00")(
+            manager=task_manager, **kwargs
+        )
         def func():
             print("Hello world!")
 
@@ -367,37 +346,16 @@ class RunInMonth(_FromDay__ToPhraseMixin, _OnDayPhraseMixin, SchedulePhrase):
         ```
         """
         super().__init__(**kwargs)
-        if month < 1 or month > 12:
-            raise ValueError("'month' must be between 1 and 12")
         self.month = month
         return None
 
     
     def is_due(self) -> bool:
         month_now = datetime.datetime.now(tz=self.tz).month
+        is_due = month_now == self.month
         if self.parent:
-            return self.parent.is_due() and month_now == self.month
-        return month_now == self.month
-
-
-    def afterevery(
-            self, 
-            *, 
-            days: int = 0,
-            hours: int = 0, 
-            minutes: int = 0, 
-            seconds: int = 0, 
-            milliseconds: int = 0, 
-            microseconds: int = 0
-        ):
-        return super().afterevery(
-            days=days,
-            hours=hours, 
-            minutes=minutes, 
-            seconds=seconds, 
-            milliseconds=milliseconds, 
-            microseconds=microseconds
-        )
+            return self.parent.is_due() and is_due
+        return is_due
 
 
 
@@ -414,8 +372,16 @@ class _InMonthPhraseMixin:
 
 
 
-class RunFromMonth__To(_OnDayPhraseMixin, _FromDay__ToPhraseMixin, RunFromSchedulePhrase):
+class RunFromMonth__To(
+    _DHMSAfterEveryPhraseMixin, 
+    _OnDayPhraseMixin, 
+    _FromDay__ToPhraseMixin, 
+    RunFromSchedulePhrase
+):
     """Task will only run within the specified months of the year, every year."""
+    _from = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 12])
+    _to = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 12])
+
     def __init__(self, _from: int, _to: int, **kwargs):
         """
         Create a schedule that will only be due within the specified months of the year, every year.
@@ -426,47 +392,29 @@ class RunFromMonth__To(_OnDayPhraseMixin, _FromDay__ToPhraseMixin, RunFromSchedu
         Example:
         ```
         run_from_january_to_march = RunFromMonth__To(_from=1, _to=3)
-        @run_from_january_to_march(manager=task_manager, **kwargs)
+        @run_from_january_to_march.from_dayofmonth__to(
+            _from=12, _to=28
+        )
+        .afterevery(
+            minutes=5, seconds=20
+        )(manager=task_manager, **kwargs)
         def func():
             print("Hello world!")
 
         func()
         ```
         """
-        if _from < 1 or _from > 12:
-            raise ValueError("'_from' must be between 1 and 12")
-        if _to < 1 or _to > 12:
-            raise ValueError("'_to' must be between 1 and 12")
         if _from == _to:
             raise ValueError("'_from' and '_to' cannot be the same")
         super().__init__(_from, _to, **kwargs)
 
     
-    def is_due(self):
+    def is_due(self) -> bool:
         month_now = datetime.datetime.now(tz=self.tz).month
+        is_due: bool = month_now >= self._from and month_now <= self._to
         if self.parent:
-            return self.parent.is_due() and month_now >= self._from and month_now <= self._to
-        return month_now >= self._from and month_now <= self._to
-    
-
-    def afterevery(
-        self,
-        *,
-        days: int = 0,
-        hours: int = 0,
-        minutes: int = 0,
-        seconds: int = 0,
-        milliseconds: int = 0,
-        microseconds: int = 0
-    ):
-        return super().afterevery(
-            days=days,
-            hours=hours,
-            minutes=minutes,
-            seconds=seconds,
-            milliseconds=milliseconds,
-            microseconds=microseconds
-        )
+            return self.parent.is_due() and is_due
+        return is_due
 
 
 
@@ -494,13 +442,15 @@ class _FromMonth__ToPhraseMixin:
 
 
 class RunInYear(
-        _FromMonth__ToPhraseMixin, 
-        _FromDay__ToPhraseMixin, 
-        _InMonthPhraseMixin, 
-        _OnDayPhraseMixin, 
-        SchedulePhrase
-    ):
+    _FromMonth__ToPhraseMixin, 
+    _FromDay__ToPhraseMixin, 
+    _InMonthPhraseMixin, 
+    _OnDayPhraseMixin, 
+    SchedulePhrase
+):
     """Task will run in specified year"""
+    year = SetOnceDescriptor(attr_type=int)
+
     def __init__(self, year: int, **kwargs):
         """
         Create a schedule that will be due in the specified year.
@@ -510,7 +460,13 @@ class RunInYear(
         Example:
         ```
         run_in_2021 = RunInYear(year=2021)
-        @run_in_2021(manager=task_manager, **kwargs)
+        @run_in_2021.from_month__to(
+            _from=1, _to=6
+        )
+        .from_weekday__to(
+            _from=3, _to=5
+        )
+        .at("03:43:00")(manager=task_manager, **kwargs)
         def func():
             print("Hello world!")
 
@@ -530,24 +486,17 @@ class RunInYear(
 
 
 
-def _parse_datetime(dt: str, tzinfo: datetime.tzinfo = None) -> datetime.datetime:
-    """
-    Parse a datetime string in format "%Y-%m-%d %H:%M:%S" into a datetime.datetime object.
-    """
-    if tzinfo is None:
-        tzinfo = datetime.datetime.now().astimezone().tzinfo
-    return datetime.datetime.strptime(dt, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tzinfo)
-
-
-
 class RunFromDateTime__To(
-        _InMonthPhraseMixin, 
-        _OnDayPhraseMixin, 
-        _FromMonth__ToPhraseMixin, 
-        _FromDay__ToPhraseMixin, 
-        RunFromSchedulePhrase
-    ):
+    _InMonthPhraseMixin, 
+    _OnDayPhraseMixin, 
+    _FromMonth__ToPhraseMixin, 
+    _FromDay__ToPhraseMixin, 
+    RunFromSchedulePhrase
+):
     """Task will only run within the specified date and time range."""
+    _from = SetOnceDescriptor(attr_type=str)
+    _to = SetOnceDescriptor(attr_type=str)
+
     def __init__(self, _from: str, _to: str, **kwargs):
         """
         Create a schedule that will only be due within the specified date and time.
@@ -557,8 +506,11 @@ class RunFromDateTime__To(
 
         Example:
         ```
-        run_from_2021_01_01_00_00_to_2022_01_01_00_05 = RunFromDateTime__To(_from="2021-01-01 00:00:00", _to="2022-01-01 00:05:00")
-        @run_from_2021_01_01_00_00_to_2022_01_01_00_05(manager=task_manager, **kwargs)
+        run_from_2021_01_01_00_00_to_2022_01_02_00_05 = RunFromDateTime__To(_from="2021-01-01 00:00:00", _to="2022-01-02 00:05:00")
+        @run_from_2021_01_01_00_00_to_2022_01_02_00_05
+        .from__to(
+            _from="08:00:00", _to="15:00:00"
+        )(manager=task_manager, **kwargs)
         def func():
             print("Hello world!")
         
@@ -566,18 +518,19 @@ class RunFromDateTime__To(
         ```
         """
         super().__init__(_from, _to, **kwargs)
-        self._from = _parse_datetime(dt=_from, tzinfo=self.tz)
-        self._to = _parse_datetime(dt=_to, tzinfo=self.tz)
+        self._from = parse_datetime(dt=_from, tzinfo=self.tz)
+        self._to = parse_datetime(dt=_to, tzinfo=self.tz)
         if self._from > self._to:
             raise ValueError("'_from' cannot be greater than '_to'")
         return None
     
 
-    def is_due(self):
+    def is_due(self) -> bool:
         now = datetime.datetime.now(tz=self.tz)
+        is_due = now >= self._from and now <= self._to
         if self.parent:
-            return self.parent.is_due() and now >= self._from and now <= self._to
-        return now >= self._from and now <= self._to
+            return self.parent.is_due() and is_due
+        return is_due
 
 
 ###################################### END YEAR-BASED PHRASES AND PHRASE-MIXINS ###########################################
