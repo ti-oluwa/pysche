@@ -2,22 +2,25 @@ import datetime
 from typing import Any
 
 from .bases import (
-    BaseSchedulePhrase, _AtPhraseMixin, 
+    BaseSchedule, _AtPhraseMixin, 
     _AfterEveryPhraseMixin, _From__ToPhraseMixin, 
     RunAfterEvery
 )
-from .._utils import SetOnceDescriptor, parse_datetime
+from ._utils import SetOnceDescriptor, parse_datetime
 
 
-class SchedulePhrase(
+class Schedule(
     _From__ToPhraseMixin, 
     _AtPhraseMixin, 
     _AfterEveryPhraseMixin, 
-    BaseSchedulePhrase
+    BaseSchedule
 ):
     """
-    A schedule phrase is a schedule that can be chained with other schedule phrases to create a complex schedule
-    called a "schedule clause".
+    A schedule defines how a task will be run. Schedules can be chained together to create complex schedules
+    called a "schedule clause". A schedule clause is a combination of schedules that define when a task will run.
+    A schedule clause must always end with a base schedule, a schedule that defines the frequency or time of the task execution.
+
+    A schedule can have its timedelta set to None.
 
     Example:
     ```python
@@ -28,7 +31,7 @@ class SchedulePhrase(
     """
     pass
 
-# You can make complex schedules called "schedule clauses" by chaining schedule phrases together.
+# You can make complex schedules called "schedule clauses" by chaining schedules together.
 
 
 
@@ -51,7 +54,7 @@ class _HMSAfterEveryPhraseMixin(_AfterEveryPhraseMixin):
 
 
 
-class RunOnWeekDay(_HMSAfterEveryPhraseMixin, SchedulePhrase):
+class RunOnWeekDay(_HMSAfterEveryPhraseMixin, Schedule):
     """Task will run on the specified day of the week, every week."""
     weekday = SetOnceDescriptor(attr_type=int, validators=[lambda x: 0 <= x <= 6])
 
@@ -85,7 +88,7 @@ class RunOnWeekDay(_HMSAfterEveryPhraseMixin, SchedulePhrase):
 
 
 
-class RunOnDayOfMonth(_HMSAfterEveryPhraseMixin, SchedulePhrase):
+class RunOnDayOfMonth(_HMSAfterEveryPhraseMixin, Schedule):
     """Task will run on the specified day of the month, every month."""
     day = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 31])
 
@@ -162,7 +165,7 @@ class _OnDayPhraseMixin(_OnWeekDayPhraseMixin, _OnDayOfMonthPhraseMixin):
 
 ###################################### DAY_BASED "RunFrom...__To" PHRASES AND PHRASE-MIXINS ###########################################
 
-class RunFromSchedulePhrase(SchedulePhrase):
+class RunFromSchedule(Schedule):
     """Base class for all "RunFrom..." schedule phrases."""
     _from = SetOnceDescriptor(attr_type=Any)
     _to = SetOnceDescriptor(attr_type=Any)
@@ -176,7 +179,7 @@ class RunFromSchedulePhrase(SchedulePhrase):
 
 
 
-class RunFromWeekDay__To(_HMSAfterEveryPhraseMixin, RunFromSchedulePhrase):
+class RunFromWeekDay__To(_HMSAfterEveryPhraseMixin, RunFromSchedule):
     """Task will only run within the specified days of the week, every week."""
     _from = SetOnceDescriptor(attr_type=int, validators=[lambda x: 0 <= x <= 6])
     _to = SetOnceDescriptor(attr_type=int, validators=[lambda x: 0 <= x <= 6])
@@ -201,19 +204,28 @@ class RunFromWeekDay__To(_HMSAfterEveryPhraseMixin, RunFromSchedulePhrase):
         if _from == _to:
             raise ValueError("'_from' and '_to' cannot be the same")
         super().__init__(_from, _to, **kwargs)
-        
 
     
     def is_due(self) -> bool:
         weekday_now = datetime.datetime.now(tz=self.tz).weekday()
-        is_due = weekday_now >= self._from and weekday_now <= self._to
+        if self._from < self._to:
+            # E.g; If self._from=0 and self._to=5, then we can check if the weekday (x),
+            # lies between the range (x: 0 <= x <= 5)
+            is_due = weekday_now >= self._from and weekday_now <= self._to
+        else:
+            # E.g; If self._from=6 and self._to=3, then we can check if the weekday (x),
+            # satisfies any of the two conditions; 
+            # -> x >= self._from
+            # -> x <= self._to
+            is_due = weekday_now >= self._from or weekday_now <= self._to
+
         if self.parent:
             return self.parent.is_due() and is_due
         return is_due
 
 
 
-class RunFromDayOfMonth__To(_HMSAfterEveryPhraseMixin, RunFromSchedulePhrase):
+class RunFromDayOfMonth__To(_HMSAfterEveryPhraseMixin, RunFromSchedule):
     """Task will only run within the specified days of the month, every month."""
     _from = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 31])
     _to = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 31])
@@ -242,7 +254,17 @@ class RunFromDayOfMonth__To(_HMSAfterEveryPhraseMixin, RunFromSchedulePhrase):
     
     def is_due(self) -> bool:
         today = datetime.datetime.now(tz=self.tz).day
-        is_due = today >= self._from and today <= self._to
+        if self._from < self._to:
+            # E.g; If self._from=4 and self._to=6, then we can check if the day (x),
+            # lies between the range (x: 4 <= x <= 6)
+            is_due = today >= self._from and today <= self._to
+        else:
+            # E.g; If self._from=11 and self._to=3, then we can check if the day (x),
+            # satisfies any of the two conditions; 
+            # -> x >= self._from
+            # -> x <= self._to
+            is_due = today >= self._from or today <= self._to
+
         if self.parent:
             return self.parent.is_due() and is_due
         return is_due
@@ -318,7 +340,7 @@ class RunInMonth(
     _DHMSAfterEveryPhraseMixin, 
     _FromDay__ToPhraseMixin, 
     _OnDayPhraseMixin, 
-    SchedulePhrase
+    Schedule
 ):
     """Task will run in specified month of the year, every year"""
     month = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 12])
@@ -376,7 +398,7 @@ class RunFromMonth__To(
     _DHMSAfterEveryPhraseMixin, 
     _OnDayPhraseMixin, 
     _FromDay__ToPhraseMixin, 
-    RunFromSchedulePhrase
+    RunFromSchedule
 ):
     """Task will only run within the specified months of the year, every year."""
     _from = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 12])
@@ -411,7 +433,17 @@ class RunFromMonth__To(
     
     def is_due(self) -> bool:
         month_now = datetime.datetime.now(tz=self.tz).month
-        is_due: bool = month_now >= self._from and month_now <= self._to
+        if self._from < self._to:
+            # E.g; If self._from=4 and self._to=8, then we can check if the month (x),
+            # lies between the range (x: 4 <= x <= 8)
+            is_due: bool = month_now >= self._from and month_now <= self._to
+        else:
+            # E.g; If self._from=11 and self._to=3, then we can check if the month (x),
+            # satisfies any of the two conditions; 
+            # -> x >= self._from
+            # -> x <= self._to
+            is_due: bool = month_now >= self._from or month_now <= self._to
+
         if self.parent:
             return self.parent.is_due() and is_due
         return is_due
@@ -446,7 +478,7 @@ class RunInYear(
     _FromDay__ToPhraseMixin, 
     _InMonthPhraseMixin, 
     _OnDayPhraseMixin, 
-    SchedulePhrase
+    Schedule
 ):
     """Task will run in specified year"""
     year = SetOnceDescriptor(attr_type=int)
@@ -491,7 +523,7 @@ class RunFromDateTime__To(
     _OnDayPhraseMixin, 
     _FromMonth__ToPhraseMixin, 
     _FromDay__ToPhraseMixin, 
-    RunFromSchedulePhrase
+    RunFromSchedule
 ):
     """Task will only run within the specified date and time range."""
     _from = SetOnceDescriptor(attr_type=str)
@@ -520,6 +552,8 @@ class RunFromDateTime__To(
         super().__init__(_from, _to, **kwargs)
         self._from = parse_datetime(dt=_from, tzinfo=self.tz)
         self._to = parse_datetime(dt=_to, tzinfo=self.tz)
+
+        # For datetimes self._from must always be greater than self._to
         if self._from > self._to:
             raise ValueError("'_from' cannot be greater than '_to'")
         return None

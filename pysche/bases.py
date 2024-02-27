@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Callable, Coroutine, Any, List, Literal
+from typing import Callable, Coroutine, Any, List, TypeVar
 import datetime
 import asyncio
 import functools
@@ -9,14 +9,14 @@ except ImportError:
     from backports import zoneinfo
 from abc import ABC, abstractmethod
 
-from ..manager import TaskManager
-from .._utils import SetOnceDescriptor, parse_time, utcoffset_to_zoneinfo, get_current_datetime_from_time
+from .manager import TaskManager
+from ._utils import SetOnceDescriptor, parse_time, utcoffset_to_zoneinfo, get_current_datetime_from_time
 
 
 
-class Schedule(ABC):
+class AbstractBaseSchedule(ABC):
     """
-    Abstract base class for all schedules.
+    Abstract base class for all AbstractBases.
 
     Determines when a task will be executed.
     """
@@ -40,7 +40,7 @@ class Schedule(ABC):
         :param max_retry: The maximum number of times the task will be retried if an exception is encountered.
         :param start_immediately: If True, the task will start immediately after being created.
         """
-        from ..task import ScheduledTask
+        from .tasks import ScheduledTask
         def decorator(func: Callable) -> Callable[..., ScheduledTask]:
             """Create function that will run on this schedule"""
             @functools.wraps(func)
@@ -76,31 +76,38 @@ class Schedule(ABC):
         pass
 
 
+ScheduleType = TypeVar("ScheduleType", bound=AbstractBaseSchedule)
+
 
 # ------------------- #
 # ----- PHRASES ----- #
 # ------------------- #
 
-class BaseSchedulePhrase(Schedule):
+class BaseSchedule(AbstractBaseSchedule):
     """
-    Base class for schedule phrases.
+    Base schedule class.
 
-    A schedule phrase is a schedule that can be chained with other schedule phrases to create a complex schedule
-    called a "schedule clause".
+    A base schedule is a schedule that can be chained to (the end of) a schedule to create a complex schedule
+    called a "schedule clause". Although, they can still be used singly.
 
-    Base schedule phrases cannot be chained with other schedule phrases but other schedule phrases can be chained to them to form clauses.
-    They are usually the last schedule phrase in a schedule clause.
+    A schedule clause must always end with a base schedule.
     """
-    parent = SetOnceDescriptor(attr_type=Schedule)
+    parent = SetOnceDescriptor(attr_type=AbstractBaseSchedule)
     tz = SetOnceDescriptor(attr_type=zoneinfo.ZoneInfo)
     timedelta = SetOnceDescriptor(attr_type=datetime.timedelta, default=None)
     # __slots__ = ("__dict__",)
 
     def __init__(self, **kwargs):
+        """
+        Create a base schedule.
+
+        :param parent: The schedule this schedule is chained to.
+        :param tz: The timezone to use for the schedule. If not specified, the timezone of the parent schedule will be used.
+        """
         parent = kwargs.get("parent", None)
         tz = kwargs.get("tz", None)
-        if parent and not isinstance(parent, Schedule):
-            raise TypeError("'parent' must be an instance of 'Schedule'")
+        if parent and not isinstance(parent, BaseSchedule):
+            raise TypeError(f"'parent' must be an instance of '{BaseSchedule.__name__}'")
         
         self.parent = parent
         self.tz = zoneinfo.ZoneInfo(tz) if tz and isinstance(tz, str) else tz
@@ -127,8 +134,8 @@ class BaseSchedulePhrase(Schedule):
     ):
         if self.timedelta is None:
             raise ValueError(
-                f"The '{self.__class__.__name__}' schedule phrase cannot be used solely to create a task."
-                " It has to be chained with a base schedule phrase that has a timedelta."
+                f"The '{self.__class__.__name__}' schedule cannot be used solely to create a task."
+                " It has to be chained with a base schedule to form a useable schedule clause."
             )
         return super().__call__(
             manager=manager, 
@@ -163,10 +170,10 @@ class BaseSchedulePhrase(Schedule):
         return schedule_func
 
     
-    def get_ancestors(self) -> List[BaseSchedulePhrase]:
+    def get_ancestors(self) -> List[BaseSchedule]:
         """
-        Return a list of all previous schedule phrases this schedule phrase is chained to,
-        starting from the first schedule phrase in the chain.
+        Return a list of all previous schedules this schedule is chained to,
+        starting from the first schedule in the chain.
 
         Example:
         ```python
@@ -192,7 +199,7 @@ class BaseSchedulePhrase(Schedule):
 
 
 
-class RunAt(BaseSchedulePhrase):
+class RunAt(BaseSchedule):
     """Task will run at the specified time, everyday"""
     time = SetOnceDescriptor(attr_type=datetime.time)
 
@@ -227,22 +234,15 @@ class RunAt(BaseSchedulePhrase):
         return None
     
 
-    # def is_due(self) -> bool:
-    #     time = self.time.strftime("%H:%M:%S")
-    #     time_now = datetime.datetime.now(tz=self.tz).time().strftime("%H:%M:%S")
-    #     # Use datetime.time "%H:%M:%S" string comparison instead of direct datetime.time comparison because
-    #     # the program cannot be precise enough to compare the time to the nearest microsecond.
-    #     if self.parent:
-    #         return self.parent.is_due() and time_now == time
-    #     return time_now == time
-
-    def is_due(self) -> Literal[True]:
+    def is_due(self) -> bool:
+        if self.parent:
+            return self.parent.is_due()
         return True
     
         
 
 
-class RunAfterEvery(BaseSchedulePhrase):
+class RunAfterEvery(BaseSchedule):
     """Task will run after the specified interval, repeatedly"""
     def __init__(
         self,
@@ -286,34 +286,17 @@ class RunAfterEvery(BaseSchedulePhrase):
         self._next_due_at = None
         super().__init__(**kwargs)
 
-
-    # def is_due(self) -> bool:
-    #     if not self._next_due_at:
-    #         self._next_due_at = (datetime.datetime.now(tz=self.tz) + self.timedelta).replace(microsecond=0)
-
-    #     next_due_dt = self._next_due_at.strftime("%Y-%m-%d %H:%M:%S")
-    #     dt_now = datetime.datetime.now(tz=self.tz).strftime("%Y-%m-%d %H:%M:%S")
-    #     # Use datetime.time "%Y-%m-%d %H:%M:%S" string comparison instead of direct datetime.time comparison because
-    #     # the program cannot be precise enough to compare the datetime to the nearest microsecond.
-    #     if self.parent:
-    #         is_due = self.parent.is_due() and dt_now == next_due_dt
-    #     else:
-    #         is_due = dt_now == next_due_dt
-    #     if is_due:
-    #         self._last_due_at = self._next_due_at
-    #         self._next_due_at = (self._last_due_at + self.timedelta).replace(microsecond=0)
-    #     return is_due
-    #     # the microsecond is set to 0 since the program cannot be precise 
-    #     # enough to compare the time to the nearest microsecond.Also, It is not used for comparison.
         
-    def is_due(self) -> Literal[True]:
+    def is_due(self) -> bool:
+        if self.parent:
+            return self.parent.is_due()
         return True
     
 
 
 class _AtPhraseMixin:
     """Allows chaining of the 'at' phrase to other schedule phrases."""
-    def at(self: Schedule, time: str, **kwargs) -> RunAt:
+    def at(self: BaseSchedule, time: str, **kwargs) -> RunAt:
         """
         Task will run at the specified time, everyday.
 
@@ -326,7 +309,7 @@ class _AtPhraseMixin:
 class _AfterEveryPhraseMixin:
     """Allows chaining of the 'afterevery' phrase to other schedule phrases."""
     def afterevery(
-        self: Schedule,
+        self: BaseSchedule,
         *,
         weeks: int = 0,
         days: int = 0,
@@ -358,7 +341,7 @@ class _AfterEveryPhraseMixin:
 # ----- FROM TO ----- #
 # ------------------- #
 
-class RunFrom__To(_AfterEveryPhraseMixin, BaseSchedulePhrase):
+class RunFrom__To(_AfterEveryPhraseMixin, BaseSchedule):
     """
     Task will only run within the specified time frame, everyday.
 
@@ -385,14 +368,24 @@ class RunFrom__To(_AfterEveryPhraseMixin, BaseSchedulePhrase):
         super().__init__(**kwargs)
         self._from = parse_time(time=_from, tzinfo=self.tz)
         self._to = parse_time(time=_to, tzinfo=self.tz)
-        if self._from >= self._to:
-            raise ValueError("'_from' time must be less than '_to' time")
+        if self._from == self._to:
+            raise ValueError("'_from' time cannot be the same as '_to' time")
         return None
     
 
     def is_due(self) -> bool:
-        time_now = datetime.datetime.now(tz=self.tz).time()
-        is_due = time_now >= self._from and time_now <= self._to
+        time_now = datetime.datetime.now(tz=self.tz).time().replace(tzinfo=self.tz) # Update naive time returned by .time() to aware time
+        if self._from < self._to:
+            # E.g; If self._from='04:00:00' and self._to='08:00:00', then we can check if the time (x),
+            # lies between the range (x: '04:00:00' <= x <= '08:00:00')
+            is_due = time_now >= self._from and time_now <= self._to
+        else:
+            # E.g; If self._from='14:00:00' and self._to='00:00:00', then we can check if the time (x),
+            # satisfies any of the two conditions; 
+            # -> x >= self._from
+            # -> x <= self._to
+            is_due = time_now >= self._from or time_now <= self._to
+
         if self.parent:
             return self.parent.is_due() and is_due
         return is_due
@@ -413,7 +406,7 @@ class RunFrom__To(_AfterEveryPhraseMixin, BaseSchedulePhrase):
 
 class _From__ToPhraseMixin:
     """Allows chaining of the 'from__to' phrase to other schedule phrases."""
-    def from__to(self: Schedule, *, _from: str, _to: str) -> RunFrom__To:
+    def from__to(self: BaseSchedule, *, _from: str, _to: str) -> RunFrom__To:
         """
         Task will only run within the specified time frame, everyday.
 

@@ -3,6 +3,7 @@ import datetime
 import sys
 from collections import deque
 import threading
+import time
 from typing import Any, Callable, Dict, Iterable, List, Mapping
 import asyncio
 import functools
@@ -65,7 +66,7 @@ class TaskManager:
         Task execution details are always written to the console. Create a subclass and set `log_to_console` to False
         to disable writing to the console.
         """
-        from .task import ScheduledTask
+        from .tasks import ScheduledTask
         if not isinstance(max_duplicates, int):
             raise TypeError("Max instances must be an integer")
         
@@ -112,7 +113,7 @@ class TaskManager:
 
         Errors are mapped to the name of the task in which they occurred.
         """
-        return { task.name : task.errors for task in self.tasks if task.errors }
+        return { task.name : task.errors for task in self.tasks[:] if task.errors }
     
     @property
     def has_errors(self) -> bool:
@@ -122,7 +123,10 @@ class TaskManager:
     @property
     def is_busy(self) -> bool:
         """Returns True if the task manager is currently executing any task"""
-        return any([ task.is_running for task in self.tasks ])
+        # iterate over a copy of the tasks list, self.tasks[:], instead of the list itself to avoid
+        # runtime error / race conditions that may occur when trying modify the task list while it is been
+        # iterated over.
+        return any([ task.is_running for task in self.tasks[:] ])
     
     @property
     def status(self):
@@ -210,6 +214,7 @@ class TaskManager:
         
         try:
             while self.is_busy:
+                time.sleep(0.001)
                 continue
         except (KeyboardInterrupt, SystemExit):
             self.stop()
@@ -300,8 +305,8 @@ class TaskManager:
         :param task_name: The name to give the task created to run the function. 
         This can make it easier to identify the task in logs in the case of errors.
         """
-        from .schedules.bases import RunAfterEvery
-        from .task import ScheduledTask
+        from .bases import RunAfterEvery
+        from .tasks import ScheduledTask
         # Wraps function such that the function runs once and then the task is cancelled
         @functools.wraps(func)
         def _wrapper(*args, **kwargs):
@@ -347,8 +352,8 @@ class TaskManager:
         :param task_name: The name to give the task created to run the function. 
         This can make it easier to identify the task in logs in the case of errors.
         """
-        from .schedules.bases import RunAt
-        from .task import ScheduledTask
+        from .bases import RunAt
+        from .tasks import ScheduledTask
         # Wraps function such that the function runs once and then the task is cancelled
         @functools.wraps(func)
         def _wrapper(*args, **kwargs):

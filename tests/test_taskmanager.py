@@ -6,7 +6,7 @@ import os
 
 from pysche.manager import TaskManager
 from pysche.schedules.bases import RunAfterEvery
-from pysche.task import ScheduledTask
+from pysche.pysche.tasks import ScheduledTask
 from tests.mock import *
 
 

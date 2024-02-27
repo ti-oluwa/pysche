@@ -8,7 +8,7 @@ import traceback
 import datetime
 
 from .manager import TaskManager
-from .schedules.bases import Schedule
+from .bases import ScheduleType
 from ._utils import SetOnceDescriptor
 
 
@@ -52,7 +52,7 @@ class ScheduledTask:
     def __init__(
         self,
         func: Callable,
-        schedule: Schedule,
+        schedule: ScheduleType,
         manager: TaskManager,
         *,
         args: Iterable[Any] = (),
@@ -169,14 +169,16 @@ class ScheduledTask:
             raise RuntimeError(f"{self.name} has already been cancelled. {self.name} cannot be called.")
 
         if self.execute_then_wait is True:
-            # Execute the task first if execute_then_wait is True,
+            # Execute the task first if execute_then_wait is True.
+            self.log(f"Task execution started.\n")
+            self._is_running = True
             await self.func(*self.args, **self.kwargs)
 
         schedule_func = self.schedule.make_schedule_func_for_task(self)
         err_count = 0
         while self.manager._continue and not (self.failed or self.cancelled): # The prevents the task from running when the manager has not been started (or is stopped)
             if not self.is_running:
-                self.log(f"Started.\n")
+                self.log(f"Task execution started.\n")
                 self._is_running = True
 
             try:
@@ -201,7 +203,7 @@ class ScheduledTask:
         
         # If task exits loop, task has stopped executing
         if self.is_running:
-            self.log("Stopped.\n")
+            self.log("Task execution stopped.\n")
             self._is_running = False
         return None
 
@@ -238,7 +240,7 @@ class ScheduledTask:
 
     def start(self) -> None:
         """
-        Start running task. You cannot start a failed or cancelled task
+        Start task execution. You cannot start a failed or cancelled task
 
         The task will not start if it is already running, paused, failed or cancelled.
         Also, the task will not start until its manager has been started.
@@ -279,7 +281,7 @@ class ScheduledTask:
         if self.is_paused:
             raise RuntimeError(f"Cannot pause '{self.name}'. '{self.name}' is already paused.")
         self._is_paused = True
-        self.log("Paused.\n")
+        self.log("Task execution paused.\n")
         return None
     
 
@@ -288,7 +290,7 @@ class ScheduledTask:
         if not self.is_paused:
             return
         self._is_paused = False
-        self.log("Resumed.\n")
+        self.log("Task execution resumed.\n")
         return None
     
 
@@ -354,7 +356,7 @@ class ScheduledTask:
         self.manager._tasks.remove(self)
         self.join()
         self._cancelled = True
-        self.log("Cancelled.\n")
+        self.log("Task cancelled.\n")
         return None
 
 
@@ -370,7 +372,7 @@ class ScheduledTask:
 
     
 def scheduledtask(
-    schedule: Schedule,
+    schedule: ScheduleType,
     manager: TaskManager,
     *,
     name: str = None,

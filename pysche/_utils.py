@@ -158,4 +158,3 @@ class SetOnceDescriptor:
                 raise ValueError(f'Validation failed for {self.name}')
         instance.__dict__[self.name] = value
 
-
