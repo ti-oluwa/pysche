@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Any, List, Callable, TypeVar
 import inspect
 import datetime
@@ -5,7 +6,6 @@ try:
     import zoneinfo
 except ImportError:
     from backports import zoneinfo
-
 
 
 def utcoffset_to_zoneinfo(offset: datetime.timedelta) -> zoneinfo.ZoneInfo:
@@ -88,8 +88,8 @@ class SetOnceDescriptor:
         self, 
         attr_type: Klass = None, 
         *,
-        default: Any = NO_DEFAULT,
-        validators: List[Validator] = None
+        default: Klass = NO_DEFAULT,
+        validators: List[Validator] | None = None
     ) -> None:
         """
         Initialize the descriptor
@@ -98,12 +98,12 @@ class SetOnceDescriptor:
         If the value is not of this type and is not None, a TypeError is raised
         :param validators: list of validators to be used to validate the attribute's value
         """
-        if attr_type and not inspect.isclass(attr_type):
+        if attr_type is not None and not inspect.isclass(attr_type):
             raise TypeError('attr_type must be a class')
         if validators and not isinstance(validators, list):
             raise TypeError('validators must be a list')
         
-        self.attr_type = attr_type or object
+        self.attr_type: Klass = attr_type
         self.validators = validators or []
         self.default = default
         for validator in self.validators:
@@ -112,13 +112,13 @@ class SetOnceDescriptor:
         return None
             
     
-    def __set_name__(self, owner, name: str):
+    def __set_name__(self, owner, name: str) -> None:
         if not isinstance(name, str):
             raise TypeError('name must be a string')
         self.name = name
 
 
-    def __get__(self, instance: object, owner: object):
+    def __get__(self, instance, owner) -> SetOnceDescriptor | Klass:
         """
         Get the property value
 
@@ -129,7 +129,7 @@ class SetOnceDescriptor:
         if instance is None:
             return self
         try:
-            value = instance.__dict__[self.name]
+            value: Klass = instance.__dict__[self.name]
         except KeyError:
             if self.default is NO_DEFAULT:
                 raise
@@ -137,7 +137,7 @@ class SetOnceDescriptor:
         return value
 
 
-    def __set__(self, instance: object, value: object) -> None:
+    def __set__(self, instance, value) -> None:
         """
         Set the attribute value on the instance
 
@@ -147,8 +147,9 @@ class SetOnceDescriptor:
         if self.name in instance.__dict__ and instance.__dict__[self.name] is not None:
             raise AttributeError(f'Attribute {self.name} has already been set')
         
-        if value is not None and not isinstance(value, self.attr_type):
-            raise TypeError(f'{self.name} must be of type {self.attr_type}')
+        if value is not None and self.attr_type is not None:
+            if not isinstance(value, self.attr_type):
+                raise TypeError(f'{self.name} must be of type {self.attr_type}')
         
         for validator in self.validators:
             r = validator(value)
@@ -157,4 +158,58 @@ class SetOnceDescriptor:
             if isinstance(r, bool) and r is not True:
                 raise ValueError(f'Validation failed for {self.name}')
         instance.__dict__[self.name] = value
+        return None
 
+
+
+class MinMaxValidator:
+    """
+    Validates that value is not less than minimum value and not greater than maximum value
+    """
+    def __init__(self, min_value: int=None, max_value: int=None):
+        """
+        Instantiate validator
+
+        :param min_value: Minimum allowed value
+        :param max_value: Maximum allowed value
+        """
+        if min_value is None and max_value is None:
+            raise ValueError("At least one of min_value or max_value must be specified")
+        if min_value and not isinstance(min_value, int):
+            raise ValueError("min_value must be an integer")
+        if max_value and not isinstance(max_value, int):
+            raise ValueError("max_value must be an integer")
+        self.min_value = min_value
+        self.max_value = max_value
+        return None
+
+
+    def __call__(self, value: int) -> bool:
+        """
+        Validate value
+
+        :param value: value to validate
+        :return: True if value is valid. Otherwise, False.
+        """
+        if not isinstance(value, int):
+            raise ValueError("Value must be an integer")
+        
+        is_valid = True
+        if self.min_value is not None:
+            is_valid = is_valid and value >= self.min_value
+        if self.max_value is not None:
+            is_valid = is_valid and value <= self.max_value
+        return is_valid
+
+
+
+def get_current_datetime(with_tz: bool = False) -> str:
+    """
+    Get the current datetime in string format
+
+    :param with_tz: Whether to include the timezone in the string
+    :return: The current datetime string
+    """
+    if with_tz:
+        return datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S (%z)")
+    return datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")

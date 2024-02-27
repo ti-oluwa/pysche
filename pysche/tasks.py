@@ -9,7 +9,7 @@ import datetime
 
 from .manager import TaskManager
 from .bases import ScheduleType
-from ._utils import SetOnceDescriptor
+from .utils import SetOnceDescriptor
 
 
 
@@ -17,7 +17,7 @@ class TaskDuplicationError(Exception):
     """Raised when maximum number of duplicate task for a `TaskManger` is exceeded"""
 
 
-class _TaskLogger:
+class TaskLogger:
     """Scheduled task logger"""
     def __init__(self, task: ScheduledTask):
         self.task = task
@@ -106,7 +106,7 @@ class ScheduledTask:
         self._cancelled = False
         self._errors = []
         self._last_ran_at: datetime.datetime = None
-        self._logger = _TaskLogger(self)
+        self._logger = TaskLogger(self)
         self.manager._tasks.append(self)
         if start_immediately:
             self.start()
@@ -117,7 +117,7 @@ class ScheduledTask:
         return self._id
     
     @property
-    def log(self) -> _TaskLogger:
+    def log(self) -> TaskLogger:
         """Returns task logger"""
         return self._logger
     
@@ -178,7 +178,7 @@ class ScheduledTask:
         err_count = 0
         while self.manager._continue and not (self.failed or self.cancelled): # The prevents the task from running when the manager has not been started (or is stopped)
             if not self.is_running:
-                self.log(f"Task execution started.\n")
+                self.log(f"Task added for execution.\n")
                 self._is_running = True
 
             try:
@@ -216,10 +216,10 @@ class ScheduledTask:
         """Wrap function to log time stats"""
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> Any:
-            self.log(f"Running...\n")
+            self.log(f"Executing task...\n")
             start_timestamp = time.time()
             r = func(*args, **kwargs)
-            self.log(f"Completed in {time.time() - start_timestamp :.4f} seconds.\n")
+            self.log(f"Task execution completed in {time.time() - start_timestamp :.4f} seconds.\n")
             return r
         return wrapper
 

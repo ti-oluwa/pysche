@@ -1,26 +1,236 @@
 import datetime
 from typing import Any
 
-from .bases import (
-    BaseSchedule, _AtPhraseMixin, 
-    _AfterEveryPhraseMixin, _From__ToPhraseMixin, 
-    RunAfterEvery
+from .bases import Schedule
+from .utils import (
+    SetOnceDescriptor, parse_datetime, MinMaxValidator as minmax,
+    get_current_datetime_from_time, parse_time
 )
-from ._utils import SetOnceDescriptor, parse_datetime
 
 
-class Schedule(
-    _From__ToPhraseMixin, 
-    _AtPhraseMixin, 
-    _AfterEveryPhraseMixin, 
-    BaseSchedule
-):
+month_validator = minmax(1, 12)
+dayofmonth_validator = minmax(1, 31)
+weekday_validator = minmax(0, 6)
+
+
+
+class RunAt(Schedule):
+    """Task will run at the specified time, everyday"""
+    time = SetOnceDescriptor(attr_type=datetime.time)
+
+    def __init__(self, time: str = None, **kwargs) -> None:
+        """
+        Create a schedule that will be due at the specified time, everyday.
+
+        :param time: The time to run the task. The time must be in the format, "HH:MM:SS".
+        
+        Example:
+        ```
+        run_at_12_30pm_daily = RunAt(time="12:30:00", tz="Africa/Lagos")
+        @run_at_12_30pm_daily(manager=task_manager, **kwargs)
+        def func():
+            print("Hello world!")
+
+        func()
+        ```
+        """
+        super().__init__(**kwargs)
+        self.time = parse_time(time=time, tzinfo=self.tz)
+        datetime_from_time = get_current_datetime_from_time(self.time)
+        current_datetime = datetime.datetime.now(tz=self.tz)
+
+        if datetime_from_time > current_datetime: 
+            # That is, the time is in the future
+            self.timedelta = datetime_from_time - current_datetime
+        else:
+            # If the time is in the past, the time will be due the next day minus 
+            # the time difference between the current time and the specified time.
+            self.timedelta = datetime.timedelta(days=1) - (current_datetime - datetime_from_time)
+        return None
+    
+
+    def is_due(self) -> bool:
+        if self.parent:
+            return self.parent.is_due()
+        return True
+    
+        
+
+
+class RunAfterEvery(Schedule):
+    """Task will run after the specified interval, repeatedly"""
+    def __init__(
+        self,
+        *, 
+        weeks: int = 0,
+        days: int = 0,
+        hours: int = 0,
+        minutes: int = 0,
+        seconds: int = 0,
+        **kwargs,
+    ) -> None:
+        """
+        Create a schedule that will be due after the specified interval, repeatedly.
+
+        :param weeks: The number of weeks.
+        :param days: The number of days.
+        :param hours: The number of hours.
+        :param minutes: The number of minutes.
+        :param seconds: The number of seconds.
+
+        Example:
+        ```
+        run_afterevery_5_seconds = RunAfterEvery(seconds=5)
+        @run_afterevery_5_seconds(manager=task_manager, **kwargs)
+        def func():
+            print("Hello world!")
+
+        func()
+        ```
+        """
+        self.timedelta = datetime.timedelta(
+            days=days,
+            seconds=seconds,
+            minutes=minutes,
+            hours=hours,
+            weeks=weeks,
+        )
+        if self.timedelta.total_seconds() <= 0:
+            raise ValueError("At least one of the arguments must be greater than 0")
+        super().__init__(**kwargs)
+
+        
+    def is_due(self) -> bool:
+        if self.parent:
+            return self.parent.is_due()
+        return True
+    
+
+
+class AtMixin:
+    """Allows chaining of the 'at' schedule to other schedules."""
+    def at(self: Schedule, time: str, **kwargs) -> RunAt:
+        """
+        Task will run at the specified time, everyday.
+
+        :param time: The time to run the task. The time must be in the format, "HH:MM:SS".
+        """
+        return RunAt(time=time, parent=self, **kwargs)
+
+
+
+class AfterEveryMixin:
+    """Allows chaining of the 'afterevery' schedule to other schedules."""
+    def afterevery(
+        self: Schedule,
+        *,
+        weeks: int = 0,
+        days: int = 0,
+        hours: int = 0,
+        minutes: int = 0,
+        seconds: int = 0,
+    ) -> RunAfterEvery:
+        """
+        Task will run after specified interval, repeatedly.
+
+        :param weeks: The number of weeks.
+        :param days: The number of days.
+        :param hours: The number of hours.
+        :param minutes: The number of minutes.
+        :param seconds: The number of seconds.
+        """
+        return RunAfterEvery(
+            weeks=weeks,
+            days=days,
+            hours=hours,
+            minutes=minutes,
+            seconds=seconds,
+            parent=self,
+        )
+
+
+class RunFrom__To(AfterEveryMixin, Schedule):
     """
-    A schedule defines how a task will be run. Schedules can be chained together to create complex schedules
-    called a "schedule clause". A schedule clause is a combination of schedules that define when a task will run.
-    A schedule clause must always end with a base schedule, a schedule that defines the frequency or time of the task execution.
+    Task will only run within the specified time frame, everyday.
 
-    A schedule can have its timedelta set to None.
+    This special schedule phrase is meant to be chained with the `afterevery` phrase.
+    """
+    def __init__(self, *, _from: str, _to: str, **kwargs) -> None:
+        """
+        Create a schedule that will only be due within the specified time frame, everyday.
+
+        :param _from: The time to start running the task. The time must be in the format, "HH:MM:SS".
+        :param _to: The time to stop running the task. The time must be in the format, "HH:MM:SS".
+
+        Example:
+        ```
+        run_from_12_30_to_13_30 = RunFrom__To(_from="12:30:00", _to="13:30:00", tz="Africa/Lagos")
+
+        @run_from_12_30_to_13_30.afterevery(seconds=5)(manager=task_manager, **kwargs)
+        def func():
+            print("Hello world!")
+        
+        func()
+        ```
+        """
+        super().__init__(**kwargs)
+        self._from = parse_time(time=_from, tzinfo=self.tz)
+        self._to = parse_time(time=_to, tzinfo=self.tz)
+        if self._from == self._to:
+            raise ValueError("'_from' time cannot be the same as '_to' time")
+        return None
+    
+
+    def is_due(self) -> bool:
+        time_now = datetime.datetime.now(tz=self.tz).time().replace(tzinfo=self.tz) # Update naive time returned by .time() to aware time
+        if self._from < self._to:
+            # E.g; If self._from='04:00:00' and self._to='08:00:00', then we can check if the time (x),
+            # lies between the range (x: '04:00:00' <= x <= '08:00:00')
+            is_due = time_now >= self._from and time_now <= self._to
+        else:
+            # E.g; If self._from='14:00:00' and self._to='00:00:00', then we can check if the time (x),
+            # satisfies any of the two conditions; 
+            # -> x >= self._from
+            # -> x <= self._to
+            is_due = time_now >= self._from or time_now <= self._to
+
+        if self.parent:
+            return self.parent.is_due() and is_due
+        return is_due
+
+
+    def afterevery(
+            self,
+            *,
+            minutes: int = 0,
+            seconds: int = 0,
+        ) -> RunAfterEvery:
+        return super().afterevery(
+            minutes=minutes,
+            seconds=seconds, 
+        )
+
+
+
+class From__ToMixin:
+    """Allows chaining of the 'from__to' schedule to other schedules."""
+    def from__to(self: Schedule, *, _from: str, _to: str) -> RunFrom__To:
+        """
+        Task will only run within the specified time frame, everyday.
+
+        :param _from: The time to start running the task. The time must be in the format, "HH:MM:SS".
+        :param _to: The time to stop running the task. The time must be in the format, "HH:MM:SS".
+        """
+        return RunFrom__To(_from=_from, _to=_to, parent=self)
+
+
+
+class TimePeriodSchedule(From__ToMixin, AtMixin, AfterEveryMixin, Schedule):
+    """
+    A time period schedule is a schedule that will only be due at a specific time
+    or within a specified time frame or period. This kind of schedule has its timedelta
+    attribute set to None, meaning it cannot be used solely to create a task. It has to be
+    chained with a schedule that has its timedelta defined to form a useable schedule clause.
 
     Example:
     ```python
@@ -29,15 +239,31 @@ class Schedule(
     ).afterevery(seconds=5)
     ```
     """
+    timedelta = SetOnceDescriptor(attr_type=None, default=None)
     pass
 
-# You can make complex schedules called "schedule clauses" by chaining schedules together.
+
+
+class DHMSAfterEveryMixin(AfterEveryMixin):
+    """Overrides the "afterevery" method to allow only days, hours, minutes, and seconds arguments."""
+    def afterevery(
+        self, 
+        *, 
+        days: int = 0,
+        hours: int = 0, 
+        minutes: int = 0, 
+        seconds: int = 0, 
+    ) -> RunAfterEvery:
+        return super().afterevery(
+            days=days,
+            hours=hours, 
+            minutes=minutes, 
+            seconds=seconds
+        )
 
 
 
-################################ DAY-BASED "RunOn..." PHRASES AND PHRASE-MIXINS ###########################################
-
-class _HMSAfterEveryPhraseMixin(_AfterEveryPhraseMixin):
+class HMSAfterEveryMixin(AfterEveryMixin):
     """Overrides the "afterevery" method to allow only hours, minutes, and seconds arguments."""
     def afterevery(
         self, 
@@ -54,11 +280,11 @@ class _HMSAfterEveryPhraseMixin(_AfterEveryPhraseMixin):
 
 
 
-class RunOnWeekDay(_HMSAfterEveryPhraseMixin, Schedule):
+class RunOnWeekDay(HMSAfterEveryMixin, TimePeriodSchedule):
     """Task will run on the specified day of the week, every week."""
-    weekday = SetOnceDescriptor(attr_type=int, validators=[lambda x: 0 <= x <= 6])
+    weekday = SetOnceDescriptor(attr_type=int, validators=[weekday_validator])
 
-    def __init__(self, weekday: int, **kwargs):
+    def __init__(self, weekday: int, **kwargs) -> None:
         """
         Create a schedule that will be due on the specified day of the week, every week.
 
@@ -88,9 +314,9 @@ class RunOnWeekDay(_HMSAfterEveryPhraseMixin, Schedule):
 
 
 
-class RunOnDayOfMonth(_HMSAfterEveryPhraseMixin, Schedule):
+class RunOnDayOfMonth(HMSAfterEveryMixin, TimePeriodSchedule):
     """Task will run on the specified day of the month, every month."""
-    day = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 31])
+    day = SetOnceDescriptor(attr_type=int, validators=[dayofmonth_validator])
 
     def __init__(self, day: int, **kwargs):
         """
@@ -122,11 +348,9 @@ class RunOnDayOfMonth(_HMSAfterEveryPhraseMixin, Schedule):
 
 
 
-# ---------------------------- DAY-BASED "RunOn..." PHRASE-MIXINS ---------------------------- #
-
-class _OnWeekDayPhraseMixin:
-    """Allows chaining of the "on_weekday" phrase to other schedule phrases."""
-    def on_weekday(self, weekday: int):
+class OnWeekDayMixin:
+    """Allows chaining of the "on_weekday" schedule to other schedules."""
+    def on_weekday(self, weekday: int) -> RunOnWeekDay:
         """
         Task will run on the specified day of the week, every week.
 
@@ -136,9 +360,9 @@ class _OnWeekDayPhraseMixin:
     
 
 
-class _OnDayOfMonthPhraseMixin:
-    """Allows chaining of the "on_dayofmonth" phrase to other schedule phrases."""
-    def on_dayofmonth(self, day: int):
+class OnDayOfMonthMixin:
+    """Allows chaining of the "on_dayofmonth" schedule to other schedules."""
+    def on_dayofmonth(self, day: int) -> RunOnDayOfMonth:
         """
         Task will run on the specified day of the month, every month.
 
@@ -148,29 +372,19 @@ class _OnDayOfMonthPhraseMixin:
 
 
 
-class _OnDayPhraseMixin(_OnWeekDayPhraseMixin, _OnDayOfMonthPhraseMixin):
+class OnDayMixin(OnWeekDayMixin, OnDayOfMonthMixin):
+    """Combines on `OnWeekDayMixin` and `OnDayOfMonthMixin`."""
     pass
 
 
-# ---------------------------- DAY-BASED "RunOn..." PHRASE-MIXINS ---------------------------- #
 
 
-################################ END DAY-BASED "RunOn..." PHRASES AND PHRASE-MIXINS ###########################################
+class RunFromSchedule(TimePeriodSchedule):
+    """Base class for all "RunFrom..." type time period schedule."""
+    _from = SetOnceDescriptor()
+    _to = SetOnceDescriptor()
 
-
-
-
-
-
-
-###################################### DAY_BASED "RunFrom...__To" PHRASES AND PHRASE-MIXINS ###########################################
-
-class RunFromSchedule(Schedule):
-    """Base class for all "RunFrom..." schedule phrases."""
-    _from = SetOnceDescriptor(attr_type=Any)
-    _to = SetOnceDescriptor(attr_type=Any)
-
-    def __init__(self, _from: Any, _to: Any, **kwargs):
+    def __init__(self, _from: Any, _to: Any, **kwargs) -> None:
         super().__init__(**kwargs)
         self._from = _from
         self._to = _to
@@ -179,12 +393,12 @@ class RunFromSchedule(Schedule):
 
 
 
-class RunFromWeekDay__To(_HMSAfterEveryPhraseMixin, RunFromSchedule):
+class RunFromWeekDay__To(HMSAfterEveryMixin, RunFromSchedule):
     """Task will only run within the specified days of the week, every week."""
-    _from = SetOnceDescriptor(attr_type=int, validators=[lambda x: 0 <= x <= 6])
-    _to = SetOnceDescriptor(attr_type=int, validators=[lambda x: 0 <= x <= 6])
+    _from = SetOnceDescriptor(attr_type=int, validators=[weekday_validator])
+    _to = SetOnceDescriptor(attr_type=int, validators=[weekday_validator])
 
-    def __init__(self, *, _from: int, _to: int, **kwargs):
+    def __init__(self, *, _from: int, _to: int, **kwargs) -> None:
         """
         Create a schedule that will only be due within the specified days of the week, every week.
 
@@ -203,7 +417,7 @@ class RunFromWeekDay__To(_HMSAfterEveryPhraseMixin, RunFromSchedule):
         """
         if _from == _to:
             raise ValueError("'_from' and '_to' cannot be the same")
-        super().__init__(_from, _to, **kwargs)
+        return super().__init__(_from, _to, **kwargs)
 
     
     def is_due(self) -> bool:
@@ -225,12 +439,12 @@ class RunFromWeekDay__To(_HMSAfterEveryPhraseMixin, RunFromSchedule):
 
 
 
-class RunFromDayOfMonth__To(_HMSAfterEveryPhraseMixin, RunFromSchedule):
+class RunFromDayOfMonth__To(HMSAfterEveryMixin, RunFromSchedule):
     """Task will only run within the specified days of the month, every month."""
-    _from = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 31])
-    _to = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 31])
+    _from = SetOnceDescriptor(attr_type=int, validators=[dayofmonth_validator])
+    _to = SetOnceDescriptor(attr_type=int, validators=[dayofmonth_validator])
 
-    def __init__(self, _from: int, _to: int, **kwargs):
+    def __init__(self, _from: int, _to: int, **kwargs) -> None:
         """
         Create a schedule that will only be due within the specified days of the month, every month.
 
@@ -249,7 +463,7 @@ class RunFromDayOfMonth__To(_HMSAfterEveryPhraseMixin, RunFromSchedule):
         """
         if _from == _to:
             raise ValueError("'_from' and '_to' cannot be the same")
-        super().__init__(_from, _to, **kwargs)             
+        return super().__init__(_from, _to, **kwargs)             
 
     
     def is_due(self) -> bool:
@@ -271,12 +485,9 @@ class RunFromDayOfMonth__To(_HMSAfterEveryPhraseMixin, RunFromSchedule):
 
 
 
-
-# ---------------------------- DAY-BASED "RunFrom...__To" PHRASE-MIXINS ---------------------------- #
-
-class _FromDayOfMonth__ToPhraseMixin:
-    """Allows chaining of the "from_dayofmonth__to" phrase to other schedule phrases"""
-    def from_dayofmonth__to(self, _from: int, _to: int):
+class FromDayOfMonth__ToMixin:
+    """Allows chaining of the "from_dayofmonth__to" schedule to other schedules"""
+    def from_dayofmonth__to(self, _from: int, _to: int) -> RunFromDayOfMonth__To:
         """
         Task will only run within the specified days of the month, every month.
 
@@ -287,9 +498,9 @@ class _FromDayOfMonth__ToPhraseMixin:
 
 
 
-class _FromWeekDay__ToPhraseMixin:
-    """Allows chaining of the "from_weekday__to" phrase to other schedule phrases."""
-    def from_weekday__to(self, _from: int, _to: int):
+class FromWeekDay__ToMixin:
+    """Allows chaining of the "from_weekday__to" schedule to other schedules."""
+    def from_weekday__to(self, _from: int, _to: int) -> RunFromWeekDay__To:
         """
         Task will only run within the specified days of the week, every week.
 
@@ -300,52 +511,18 @@ class _FromWeekDay__ToPhraseMixin:
 
 
 
-class _FromDay__ToPhraseMixin(_FromDayOfMonth__ToPhraseMixin, _FromWeekDay__ToPhraseMixin):
+class FromDay__ToMixin(FromDayOfMonth__ToMixin, FromWeekDay__ToMixin):
+    """Combines `FromDayOfMonth__ToMixin` and `FromWeekDay__ToMixin`."""
     pass
 
 
-# ---------------------------- END DAY_BASED "RunFrom...__To" PHRASE-MIXINS ---------------------------- #
 
 
-###################################### END DAY-BASED "RunFrom...__To" PHRASES AND PHRASE-MIXINS ###########################################
-
-
-
-
-
-
-
-###################################### MONTH-BASED PHRASES AND PHRASE-MIXINS ###########################################
-
-class _DHMSAfterEveryPhraseMixin(_AfterEveryPhraseMixin):
-    """Overrides the "afterevery" method to allow only days, hours, minutes, and seconds arguments."""
-    def afterevery(
-        self, 
-        *, 
-        days: int = 0,
-        hours: int = 0, 
-        minutes: int = 0, 
-        seconds: int = 0, 
-    ) -> RunAfterEvery:
-        return super().afterevery(
-            days=days,
-            hours=hours, 
-            minutes=minutes, 
-            seconds=seconds
-        )
-    
-
-
-class RunInMonth(
-    _DHMSAfterEveryPhraseMixin, 
-    _FromDay__ToPhraseMixin, 
-    _OnDayPhraseMixin, 
-    Schedule
-):
+class RunInMonth(DHMSAfterEveryMixin, FromDay__ToMixin, OnDayMixin, TimePeriodSchedule):
     """Task will run in specified month of the year, every year"""
-    month = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 12])
+    month = SetOnceDescriptor(attr_type=int, validators=[month_validator])
 
-    def __init__(self, month: int, **kwargs):
+    def __init__(self, month: int, **kwargs) -> None:
         """
         Create a schedule that will be due in a specific month of the year, every year.
 
@@ -381,9 +558,9 @@ class RunInMonth(
 
 
 
-class _InMonthPhraseMixin:
-    """Allows chaining of the "in_month" phrase to other schedule phrases."""
-    def in_month(self, month: int):
+class InMonthMixin:
+    """Allows chaining of the "in_month" schedule to other schedules."""
+    def in_month(self, month: int) -> RunInMonth:
         """
         Task will run in specified month of the year, every year.
 
@@ -394,17 +571,12 @@ class _InMonthPhraseMixin:
 
 
 
-class RunFromMonth__To(
-    _DHMSAfterEveryPhraseMixin, 
-    _OnDayPhraseMixin, 
-    _FromDay__ToPhraseMixin, 
-    RunFromSchedule
-):
+class RunFromMonth__To(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunFromSchedule):
     """Task will only run within the specified months of the year, every year."""
-    _from = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 12])
-    _to = SetOnceDescriptor(attr_type=int, validators=[lambda x: 1 <= x <= 12])
+    _from = SetOnceDescriptor(attr_type=int, validators=[month_validator])
+    _to = SetOnceDescriptor(attr_type=int, validators=[month_validator])
 
-    def __init__(self, _from: int, _to: int, **kwargs):
+    def __init__(self, _from: int, _to: int, **kwargs) -> None:
         """
         Create a schedule that will only be due within the specified months of the year, every year.
 
@@ -428,7 +600,7 @@ class RunFromMonth__To(
         """
         if _from == _to:
             raise ValueError("'_from' and '_to' cannot be the same")
-        super().__init__(_from, _to, **kwargs)
+        return super().__init__(_from, _to, **kwargs)
 
     
     def is_due(self) -> bool:
@@ -450,9 +622,9 @@ class RunFromMonth__To(
 
 
 
-class _FromMonth__ToPhraseMixin:
-    """Allows chaining of the "from_month__to" phrase to other schedule phrases."""
-    def from_month__to(self, _from: int, _to: int):
+class FromMonth__ToMixin:
+    """Allows chaining of the "from_month__to" schedule to other schedules."""
+    def from_month__to(self, _from: int, _to: int) -> RunFromMonth__To:
         """
         Task will only run within the specified months of the year, every year.
 
@@ -462,28 +634,12 @@ class _FromMonth__ToPhraseMixin:
         return RunFromMonth__To(_from=_from, _to=_to, parent=self)
   
 
-###################################### END MONTH-BASED PHRASES AND PHRASE-MIXINS ###########################################
 
-
-
-
-
-
-
-###################################### YEAR-BASED PHRASES AND PHRASE-MIXINS ###########################################
-
-
-class RunInYear(
-    _FromMonth__ToPhraseMixin, 
-    _FromDay__ToPhraseMixin, 
-    _InMonthPhraseMixin, 
-    _OnDayPhraseMixin, 
-    Schedule
-):
+class RunInYear(FromMonth__ToMixin, FromDay__ToMixin, InMonthMixin, OnDayMixin, TimePeriodSchedule):
     """Task will run in specified year"""
     year = SetOnceDescriptor(attr_type=int)
 
-    def __init__(self, year: int, **kwargs):
+    def __init__(self, year: int, **kwargs) -> None:
         """
         Create a schedule that will be due in the specified year.
 
@@ -518,18 +674,12 @@ class RunInYear(
 
 
 
-class RunFromDateTime__To(
-    _InMonthPhraseMixin, 
-    _OnDayPhraseMixin, 
-    _FromMonth__ToPhraseMixin, 
-    _FromDay__ToPhraseMixin, 
-    RunFromSchedule
-):
+class RunFromDateTime__To(InMonthMixin, OnDayMixin, FromMonth__ToMixin, FromDay__ToMixin, RunFromSchedule):
     """Task will only run within the specified date and time range."""
     _from = SetOnceDescriptor(attr_type=str)
     _to = SetOnceDescriptor(attr_type=str)
 
-    def __init__(self, _from: str, _to: str, **kwargs):
+    def __init__(self, _from: str, _to: str, **kwargs) -> None:
         """
         Create a schedule that will only be due within the specified date and time.
 
@@ -565,7 +715,4 @@ class RunFromDateTime__To(
         if self.parent:
             return self.parent.is_due() and is_due
         return is_due
-
-
-###################################### END YEAR-BASED PHRASES AND PHRASE-MIXINS ###########################################
 

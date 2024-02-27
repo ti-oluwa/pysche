@@ -10,6 +10,8 @@ import functools
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from bs4_web_scraper.logger import Logger
 
+from .utils import get_current_datetime
+
 
 class UnregisteredTask(Exception):
     """Raised when a task is not being managed by a `TaskManager`"""
@@ -82,6 +84,7 @@ class TaskManager:
         if log_to:
             self._logger = Logger(name=f'{self.__class__.__name__.lower()}{id(self)}', log_filepath=log_to)
             self._logger.to_console = self.log_to_console
+            self._logger.date_format = "%Y-%m-%d %H:%M:%S (%z)"
         else: 
             self._logger = None
         return None
@@ -305,7 +308,7 @@ class TaskManager:
         :param task_name: The name to give the task created to run the function. 
         This can make it easier to identify the task in logs in the case of errors.
         """
-        from .bases import RunAfterEvery
+        from .schedules import RunAfterEvery
         from .tasks import ScheduledTask
         # Wraps function such that the function runs once and then the task is cancelled
         @functools.wraps(func)
@@ -352,7 +355,7 @@ class TaskManager:
         :param task_name: The name to give the task created to run the function. 
         This can make it easier to identify the task in logs in the case of errors.
         """
-        from .bases import RunAt
+        from .schedules import RunAt
         from .tasks import ScheduledTask
         # Wraps function such that the function runs once and then the task is cancelled
         @functools.wraps(func)
@@ -449,6 +452,7 @@ class TaskManager:
             self._logger.log(msg, level)
         else:
             if self.log_to_console:
+                msg = f"{get_current_datetime(with_tz=True)} - {level} - {msg}\n"
                 sys.stdout.write(msg)
         return None
 

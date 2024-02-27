@@ -10,15 +10,13 @@ except ImportError:
 from abc import ABC, abstractmethod
 
 from .manager import TaskManager
-from ._utils import SetOnceDescriptor, parse_time, utcoffset_to_zoneinfo, get_current_datetime_from_time
+from .utils import SetOnceDescriptor, utcoffset_to_zoneinfo
 
 
 
 class AbstractBaseSchedule(ABC):
     """
-    Abstract base class for all AbstractBases.
-
-    Determines when a task will be executed.
+    Abstract base class for all schedules.
     """
     def __call__(
         self, 
@@ -31,7 +29,7 @@ class AbstractBaseSchedule(ABC):
         start_immediately: bool = True
     ):
         """
-        Create a function that will run on this schedule and will be executed by the specified manager.
+        Creates a function that will run on this schedule and will be executed by the specified manager.
 
         :param manager: The manager to execute the task.
         :param name: The name of the task. If not specified, the name of the function will be used.
@@ -75,39 +73,42 @@ class AbstractBaseSchedule(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_ancestors(self) -> List[AbstractBaseSchedule]:
+        """Returns a list of all previous schedules this schedule is chained to."""
+        pass
+
 
 ScheduleType = TypeVar("ScheduleType", bound=AbstractBaseSchedule)
 
 
-# ------------------- #
-# ----- PHRASES ----- #
-# ------------------- #
 
-class BaseSchedule(AbstractBaseSchedule):
+class Schedule(AbstractBaseSchedule):
     """
     Base schedule class.
 
-    A base schedule is a schedule that can be chained to (the end of) a schedule to create a complex schedule
+    A schedule determines when a task will be executed.
+
+    Schedules can be chained together to create a complex schedule
     called a "schedule clause". Although, they can still be used singly.
 
-    A schedule clause must always end with a base schedule.
+    A schedule clause must always end with a schedule that has a timedelta value.
     """
     parent = SetOnceDescriptor(attr_type=AbstractBaseSchedule)
     tz = SetOnceDescriptor(attr_type=zoneinfo.ZoneInfo)
     timedelta = SetOnceDescriptor(attr_type=datetime.timedelta, default=None)
-    # __slots__ = ("__dict__",)
 
     def __init__(self, **kwargs):
         """
-        Create a base schedule.
+        Creates a schedule.
 
         :param parent: The schedule this schedule is chained to.
         :param tz: The timezone to use for the schedule. If not specified, the timezone of the parent schedule will be used.
         """
         parent = kwargs.get("parent", None)
         tz = kwargs.get("tz", None)
-        if parent and not isinstance(parent, BaseSchedule):
-            raise TypeError(f"'parent' must be an instance of '{BaseSchedule.__name__}'")
+        if parent and not isinstance(parent, Schedule):
+            raise TypeError(f"'parent' must be an instance of '{Schedule.__name__}'")
         
         self.parent = parent
         self.tz = zoneinfo.ZoneInfo(tz) if tz and isinstance(tz, str) else tz
@@ -135,7 +136,7 @@ class BaseSchedule(AbstractBaseSchedule):
         if self.timedelta is None:
             raise ValueError(
                 f"The '{self.__class__.__name__}' schedule cannot be used solely to create a task."
-                " It has to be chained with a base schedule to form a useable schedule clause."
+                " It has to be chained with a schedule that has its timedelta defined to form a useable schedule clause."
             )
         return super().__call__(
             manager=manager, 
@@ -170,7 +171,7 @@ class BaseSchedule(AbstractBaseSchedule):
         return schedule_func
 
     
-    def get_ancestors(self) -> List[BaseSchedule]:
+    def get_ancestors(self) -> List[ScheduleType]:
         """
         Return a list of all previous schedules this schedule is chained to,
         starting from the first schedule in the chain.
@@ -191,226 +192,16 @@ class BaseSchedule(AbstractBaseSchedule):
     
 
     def __repr__(self) -> str:
-        representation = f"{self.__class__.__name__}({', '.join([f'{k}={v}' for k, v in self.__dict__.items() if k != 'parent'])})"
-        # if self.parent:
-        #     representation = f"{"@".join([repr(ancestor) for ancestor in self.get_ancestors()])}.{representation}"
-        #     return ".".join(set(representation.split("@")))
-        return representation
-
-
-
-class RunAt(BaseSchedule):
-    """Task will run at the specified time, everyday"""
-    time = SetOnceDescriptor(attr_type=datetime.time)
-
-    def __init__(self, time: str = None, **kwargs) -> None:
-        """
-        Create a schedule that will be due at the specified time, everyday.
-
-        :param time: The time to run the task. The time must be in the format, "HH:MM:SS".
-        
-        Example:
-        ```
-        run_at_12_30pm_daily = RunAt(time="12:30:00", tz="Africa/Lagos")
-        @run_at_12_30pm_daily(manager=task_manager, **kwargs)
-        def func():
-            print("Hello world!")
-
-        func()
-        ```
-        """
-        super().__init__(**kwargs)
-        self.time = parse_time(time=time, tzinfo=self.tz)
-        datetime_from_time = get_current_datetime_from_time(self.time)
-        current_datetime = datetime.datetime.now(tz=self.tz)
-
-        if datetime_from_time > current_datetime: 
-            # That is, the time is in the future
-            self.timedelta = datetime_from_time - current_datetime
-        else:
-            # If the time is in the past, the time will be due the next day minus 
-            # the time difference between the current time and the specified time.
-            self.timedelta = datetime.timedelta(days=1) - (current_datetime - datetime_from_time)
-        return None
+        """Returns a representation of the schedule."""
+        return f"{self.__class__.__name__}({', '.join([f'{k}={v}' for k, v in self.__dict__.items() if k != 'parent'])})"
     
 
-    def is_due(self) -> bool:
+    def __str__(self) -> str:
+        """Returns a string representation of the schedule."""
         if self.parent:
-            return self.parent.is_due()
-        return True
-    
-        
+            # If the schedule has a parent(s) return the representation of the parent(s) and the schedule
+            # joined together in the same order as they are chained.
+            return f"{".".join([ repr(ancestor) for ancestor in self.get_ancestors() ])}.{repr(self)}"
+        # Just return the representation of the schedule.
+        return repr(self)
 
-
-class RunAfterEvery(BaseSchedule):
-    """Task will run after the specified interval, repeatedly"""
-    def __init__(
-        self,
-        *, 
-        weeks: int = 0,
-        days: int = 0,
-        hours: int = 0,
-        minutes: int = 0,
-        seconds: int = 0,
-        **kwargs,
-    ) -> None:
-        """
-        Create a schedule that will be due after the specified interval, repeatedly.
-
-        :param weeks: The number of weeks.
-        :param days: The number of days.
-        :param hours: The number of hours.
-        :param minutes: The number of minutes.
-        :param seconds: The number of seconds.
-
-        Example:
-        ```
-        run_afterevery_5_seconds = RunAfterEvery(seconds=5)
-        @run_afterevery_5_seconds(manager=task_manager, **kwargs)
-        def func():
-            print("Hello world!")
-
-        func()
-        ```
-        """
-        self.timedelta = datetime.timedelta(
-            days=days,
-            seconds=seconds,
-            minutes=minutes,
-            hours=hours,
-            weeks=weeks,
-        )
-        if self.timedelta.total_seconds() <= 0:
-            raise ValueError("At least one of the arguments must be greater than 0")
-        self._last_due_at = None
-        self._next_due_at = None
-        super().__init__(**kwargs)
-
-        
-    def is_due(self) -> bool:
-        if self.parent:
-            return self.parent.is_due()
-        return True
-    
-
-
-class _AtPhraseMixin:
-    """Allows chaining of the 'at' phrase to other schedule phrases."""
-    def at(self: BaseSchedule, time: str, **kwargs) -> RunAt:
-        """
-        Task will run at the specified time, everyday.
-
-        :param time: The time to run the task. The time must be in the format, "HH:MM:SS".
-        """
-        return RunAt(time=time, parent=self, **kwargs)
-
-
-
-class _AfterEveryPhraseMixin:
-    """Allows chaining of the 'afterevery' phrase to other schedule phrases."""
-    def afterevery(
-        self: BaseSchedule,
-        *,
-        weeks: int = 0,
-        days: int = 0,
-        hours: int = 0,
-        minutes: int = 0,
-        seconds: int = 0,
-    ) -> RunAfterEvery:
-        """
-        Task will run after specified interval, repeatedly.
-
-        :param weeks: The number of weeks.
-        :param days: The number of days.
-        :param hours: The number of hours.
-        :param minutes: The number of minutes.
-        :param seconds: The number of seconds.
-        """
-        return RunAfterEvery(
-            weeks=weeks,
-            days=days,
-            hours=hours,
-            minutes=minutes,
-            seconds=seconds,
-            parent=self,
-        )
-
-
-
-# ------------------- #
-# ----- FROM TO ----- #
-# ------------------- #
-
-class RunFrom__To(_AfterEveryPhraseMixin, BaseSchedule):
-    """
-    Task will only run within the specified time frame, everyday.
-
-    This special schedule phrase is meant to be chained with the `afterevery` phrase.
-    """
-    def __init__(self, *, _from: str, _to: str, **kwargs) -> None:
-        """
-        Create a schedule that will only be due within the specified time frame, everyday.
-
-        :param _from: The time to start running the task. The time must be in the format, "HH:MM:SS".
-        :param _to: The time to stop running the task. The time must be in the format, "HH:MM:SS".
-
-        Example:
-        ```
-        run_from_12_30_to_13_30 = RunFrom__To(_from="12:30:00", _to="13:30:00", tz="Africa/Lagos")
-
-        @run_from_12_30_to_13_30.afterevery(seconds=5)(manager=task_manager, **kwargs)
-        def func():
-            print("Hello world!")
-        
-        func()
-        ```
-        """
-        super().__init__(**kwargs)
-        self._from = parse_time(time=_from, tzinfo=self.tz)
-        self._to = parse_time(time=_to, tzinfo=self.tz)
-        if self._from == self._to:
-            raise ValueError("'_from' time cannot be the same as '_to' time")
-        return None
-    
-
-    def is_due(self) -> bool:
-        time_now = datetime.datetime.now(tz=self.tz).time().replace(tzinfo=self.tz) # Update naive time returned by .time() to aware time
-        if self._from < self._to:
-            # E.g; If self._from='04:00:00' and self._to='08:00:00', then we can check if the time (x),
-            # lies between the range (x: '04:00:00' <= x <= '08:00:00')
-            is_due = time_now >= self._from and time_now <= self._to
-        else:
-            # E.g; If self._from='14:00:00' and self._to='00:00:00', then we can check if the time (x),
-            # satisfies any of the two conditions; 
-            # -> x >= self._from
-            # -> x <= self._to
-            is_due = time_now >= self._from or time_now <= self._to
-
-        if self.parent:
-            return self.parent.is_due() and is_due
-        return is_due
-
-
-    def afterevery(
-            self,
-            *,
-            minutes: int = 0,
-            seconds: int = 0,
-        ) -> RunAfterEvery:
-        return super().afterevery(
-            minutes=minutes,
-            seconds=seconds, 
-        )
-
-
-
-class _From__ToPhraseMixin:
-    """Allows chaining of the 'from__to' phrase to other schedule phrases."""
-    def from__to(self: BaseSchedule, *, _from: str, _to: str) -> RunFrom__To:
-        """
-        Task will only run within the specified time frame, everyday.
-
-        :param _from: The time to start running the task. The time must be in the format, "HH:MM:SS".
-        :param _to: The time to stop running the task. The time must be in the format, "HH:MM:SS".
-        """
-        return RunFrom__To(_from=_from, _to=_to, parent=self)
