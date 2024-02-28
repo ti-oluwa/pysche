@@ -299,7 +299,7 @@ class TaskManager:
         task_name: str = None
     ):
         """
-        Run function once after a specified number of seconds.
+        Run function once after a specified delay in seconds.
 
         :param delay: The number of seconds to wait before running the function
         :param func: The function to run as a task
@@ -365,11 +365,6 @@ class TaskManager:
             finally:
                 _wrapper.task.cancel()
         
-        try:
-            hr, min, sec = time.split(":")
-            hr, min, sec = int(hr), int(min), int(sec)
-        except ValueError:
-            raise ValueError("Invalid time format. Time must be in the format 'HH:MM:SS'")
         task = ScheduledTask(
             func=_wrapper,
             schedule=RunAt(time=time, tz=tz),

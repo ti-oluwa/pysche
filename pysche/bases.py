@@ -10,7 +10,7 @@ except ImportError:
 from abc import ABC, abstractmethod
 
 from .manager import TaskManager
-from .utils import SetOnceDescriptor, utcoffset_to_zoneinfo
+from .utils import SetOnceDescriptor, utcoffset_to_zoneinfo, get_datetime_now
 
 
 
@@ -79,8 +79,6 @@ class AbstractBaseSchedule(ABC):
         pass
 
 
-ScheduleType = TypeVar("ScheduleType", bound=AbstractBaseSchedule)
-
 
 
 class Schedule(AbstractBaseSchedule):
@@ -119,7 +117,7 @@ class Schedule(AbstractBaseSchedule):
 
         # If timezone is still not set, use the machine/local timezone
         if not self.tz:
-            self.tz = utcoffset_to_zoneinfo(datetime.datetime.now().utcoffset())
+            self.tz = utcoffset_to_zoneinfo(get_datetime_now().utcoffset())
         return None
     
 
@@ -205,3 +203,6 @@ class Schedule(AbstractBaseSchedule):
         # Just return the representation of the schedule.
         return repr(self)
 
+
+# Type variable for Schedule and its subclasses
+ScheduleType = TypeVar("ScheduleType", bound=Schedule)

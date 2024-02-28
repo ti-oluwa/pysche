@@ -4,7 +4,7 @@ from typing import Any
 from .bases import Schedule
 from .utils import (
     SetOnceDescriptor, parse_datetime, MinMaxValidator as minmax,
-    get_current_datetime_from_time, parse_time
+    get_current_datetime_from_time, parse_time, get_datetime_now
 )
 
 
@@ -37,7 +37,7 @@ class RunAt(Schedule):
         super().__init__(**kwargs)
         self.time = parse_time(time=time, tzinfo=self.tz)
         datetime_from_time = get_current_datetime_from_time(self.time)
-        current_datetime = datetime.datetime.now(tz=self.tz)
+        current_datetime = get_datetime_now(tzinfo=self.tz)
 
         if datetime_from_time > current_datetime: 
             # That is, the time is in the future
@@ -182,7 +182,7 @@ class RunFrom__To(AfterEveryMixin, Schedule):
     
 
     def is_due(self) -> bool:
-        time_now = datetime.datetime.now(tz=self.tz).time().replace(tzinfo=self.tz) # Update naive time returned by .time() to aware time
+        time_now = get_datetime_now(tzinfo=self.tz).time().replace(tzinfo=self.tz) # Update naive time returned by .time() to aware time
         if self._from < self._to:
             # E.g; If self._from='04:00:00' and self._to='08:00:00', then we can check if the time (x),
             # lies between the range (x: '04:00:00' <= x <= '08:00:00')
@@ -306,7 +306,7 @@ class RunOnWeekDay(HMSAfterEveryMixin, TimePeriodSchedule):
 
     
     def is_due(self) -> bool:
-        weekday_now = datetime.datetime.now(tz=self.tz).weekday()
+        weekday_now = get_datetime_now(tzinfo=self.tz).weekday()
         is_due = weekday_now == self.weekday
         if self.parent:
             return self.parent.is_due() and is_due
@@ -340,7 +340,7 @@ class RunOnDayOfMonth(HMSAfterEveryMixin, TimePeriodSchedule):
 
     
     def is_due(self) -> bool:
-        today = datetime.datetime.now(tz=self.tz).day
+        today = get_datetime_now(tzinfo=self.tz).day
         is_due = today == self.day
         if self.parent:
             return self.parent.is_due() and is_due
@@ -421,7 +421,7 @@ class RunFromWeekDay__To(HMSAfterEveryMixin, RunFromSchedule):
 
     
     def is_due(self) -> bool:
-        weekday_now = datetime.datetime.now(tz=self.tz).weekday()
+        weekday_now = get_datetime_now(tzinfo=self.tz).weekday()
         if self._from < self._to:
             # E.g; If self._from=0 and self._to=5, then we can check if the weekday (x),
             # lies between the range (x: 0 <= x <= 5)
@@ -467,7 +467,7 @@ class RunFromDayOfMonth__To(HMSAfterEveryMixin, RunFromSchedule):
 
     
     def is_due(self) -> bool:
-        today = datetime.datetime.now(tz=self.tz).day
+        today = get_datetime_now(tzinfo=self.tz).day
         if self._from < self._to:
             # E.g; If self._from=4 and self._to=6, then we can check if the day (x),
             # lies between the range (x: 4 <= x <= 6)
@@ -550,7 +550,7 @@ class RunInMonth(DHMSAfterEveryMixin, FromDay__ToMixin, OnDayMixin, TimePeriodSc
 
     
     def is_due(self) -> bool:
-        month_now = datetime.datetime.now(tz=self.tz).month
+        month_now = get_datetime_now(tzinfo=self.tz).month
         is_due = month_now == self.month
         if self.parent:
             return self.parent.is_due() and is_due
@@ -604,7 +604,7 @@ class RunFromMonth__To(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunFro
 
     
     def is_due(self) -> bool:
-        month_now = datetime.datetime.now(tz=self.tz).month
+        month_now = get_datetime_now(tzinfo=self.tz).month
         if self._from < self._to:
             # E.g; If self._from=4 and self._to=8, then we can check if the month (x),
             # lies between the range (x: 4 <= x <= 8)
@@ -669,7 +669,7 @@ class RunInYear(FromMonth__ToMixin, FromDay__ToMixin, InMonthMixin, OnDayMixin, 
 
     
     def is_due(self) -> bool:
-        year_now = datetime.datetime.now(tz=self.tz).year
+        year_now = get_datetime_now(tzinfo=self.tz).year
         return year_now == self.year
 
 
@@ -710,7 +710,7 @@ class RunFromDateTime__To(InMonthMixin, OnDayMixin, FromMonth__ToMixin, FromDay_
     
 
     def is_due(self) -> bool:
-        now = datetime.datetime.now(tz=self.tz)
+        now = get_datetime_now(tzinfo=self.tz)
         is_due = now >= self._from and now <= self._to
         if self.parent:
             return self.parent.is_due() and is_due

@@ -18,7 +18,7 @@ def utcoffset_to_zoneinfo(offset: datetime.timedelta) -> zoneinfo.ZoneInfo:
     # Calculate the UTC offset in seconds
     offset_seconds = offset.total_seconds() if offset is not None else 0
     # Generate a time zone name based on the UTC offset
-    zone_name = f"Etc/GMT{'+' if offset_seconds >= 0 else '-'}{abs(offset_seconds)//3600}"
+    zone_name = f"Etc/GMT{'+' if offset_seconds >= 0 else '-'}{int(abs(offset_seconds)//3600)}"
 
     try:
         # Try to load the ZoneInfo object for the calculated time zone
@@ -39,8 +39,7 @@ def parse_time(time: str, tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo) -> dateti
         raise ValueError("Time must be in the format, 'HH:MM:SS'") 
         
     hour, minute, second = split
-    if not tzinfo:
-        tzinfo = datetime.datetime.now().tzinfo
+    tzinfo = tzinfo or datetime.datetime.now().tzinfo
     return datetime.time(
         hour=int(hour),
         minute=int(minute),
@@ -51,12 +50,13 @@ def parse_time(time: str, tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo) -> dateti
 
 def get_current_datetime_from_time(time: datetime.time) -> datetime.datetime:
     """
-    Return the current datetime with the specified time
+    Return the current datetime with the specified time.
+    The datetime object is converted to the timezone of the datetime.time object provided.
 
     :param time: The time.
     """
     tzinfo = time.tzinfo or datetime.datetime.now().tzinfo
-    return datetime.datetime.now(tz=tzinfo).replace(
+    return get_datetime_now(tzinfo).replace(
         hour=time.hour,
         minute=time.minute,
         second=time.second,
@@ -64,15 +64,25 @@ def get_current_datetime_from_time(time: datetime.time) -> datetime.datetime:
     )
 
 
-def parse_datetime(dt: str, tzinfo: datetime.tzinfo = None) -> datetime.datetime:
+def parse_datetime(dt: str, tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> datetime.datetime:
     """
     Parse a datetime string in "%Y-%m-%d %H:%M:%S" format into a datetime.datetime object.
+    The datetime object is converted to the specified timezone on return.
 
     :param dt: datetime string.
     """
     tzinfo = tzinfo or datetime.datetime.now().tzinfo
-    return datetime.datetime.strptime(dt, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tzinfo)
+    return datetime.datetime.strptime(dt, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tzinfo).astimezone()
 
+
+def get_datetime_now(tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> datetime.datetime:
+    """
+    Returns the current datetime converted to the specified timezone.
+    It basically calls `datetime.datetime.now(tz=tzinfo).astimezone()`
+
+    :param tzinfo: The timezone info.
+    """
+    return datetime.datetime.now(tz=tzinfo).astimezone()
 
 
 Klass = TypeVar("Klass", bound=object)
