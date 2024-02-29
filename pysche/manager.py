@@ -4,45 +4,14 @@ import sys
 from collections import deque
 import threading
 import time
-from typing import Any, Callable, Dict, Iterable, List, Mapping
+from typing import Any, Callable, Dict, Sequence, List, Mapping
 import asyncio
 import functools
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from bs4_web_scraper.logger import Logger
 
-from .utils import get_current_datetime
-
-
-class UnregisteredTask(Exception):
-    """Raised when a task is not being managed by a `TaskManager`"""
-
-
-class _RedirectStandardOutputStream:
-    """
-    Context manager that redirects all standard output streams within the block 
-    to a stream that will 'always' write to console.
-
-    Can be used to ensure that all output streams are written to console, even if
-    the output stream is in a different thread.
-    """
-    def __init__(self):
-        self.stream = None
-        return None
-
-    def __call__(self, __o: Any) -> Any:
-        return self.stream.write(str(__o))    
-
-    def __enter__(self):
-        # Store the original sys.stdout
-        self.og_stream = sys.stdout
-        # Redirect sys.stdout to the sys.stderr
-        self.stream = sys.stderr
-        sys.stdout = self.stream
-        return self
-    
-    def __exit__(self, exc_type, exc_value, traceback):
-        # Restore the original sys.stdout
-        sys.stdout = self.og_stream
+from .utils import get_current_datetime, _RedirectStandardOutputStream
+from .exceptions import UnregisteredTask
 
 
 
@@ -73,12 +42,13 @@ class TaskManager:
             raise TypeError("Max instances must be an integer")
         
         self.name: str = name or f"{self.__class__.__name__.lower()}{str(id(self))[-6:]}"
+        # Used deque to allow for thread-safety and O(1) time complexity when removing tasks from the list
         self._tasks: deque[ScheduledTask] = deque([])
-        self._futures: deque[asyncio.Task] = deque([])
+        self._futures: deque[asyncio.Future] = deque([])
         self._continue: bool = False
         self._loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
         self._workthread: threading.Thread | None = None
-        self._executor: ThreadPoolExecutor = ThreadPoolExecutor()
+        self._executor: ThreadPoolExecutor = ThreadPoolExecutor(thread_name_prefix=f"{self.name}_sync_to_async_executor")
         self.max_duplicates = max_duplicates
 
         if log_to:
@@ -129,7 +99,7 @@ class TaskManager:
         # iterate over a copy of the tasks list, self.tasks[:], instead of the list itself to avoid
         # runtime error / race conditions that may occur when trying modify the task list while it is been
         # iterated over.
-        return any([ task.is_running for task in self.tasks[:] ])
+        return self.has_started and any([ task.is_running for task in self.tasks[:] ])
     
     @property
     def status(self):
@@ -164,14 +134,21 @@ class TaskManager:
         return async_func
     
 
-    def _make_future(self, scheduledtask) -> asyncio.Task:
-        future = self._loop.create_task(scheduledtask(), name=scheduledtask.name)
+    def _make_future(self, scheduledtask) -> asyncio.Future:
+        """
+        Creates and returns an `asyncio.Future` for the scheduled task.
+        Adds the future to the list of futures handled by this manager
+        """
+        # Used `run_coroutine_threadsafe` to ensure that tasks(futures) are 
+        # run concurrently and in a thread-safe manner
+        future = asyncio.run_coroutine_threadsafe(scheduledtask(), self._loop)
+        future.name = scheduledtask.name
         future.id = scheduledtask.id
         self._futures.append(future)
         return future
     
 
-    def _get_futures(self, name: str) -> List[asyncio.Task]:
+    def _get_futures(self, name: str) -> List[asyncio.Future]:
         """Returns a list of futures with the specified name"""
         matches = []
         for future in self._futures:
@@ -180,7 +157,7 @@ class TaskManager:
         return matches
 
     
-    def _get_future(self, future_id: str) -> asyncio.Task | None:
+    def _get_future(self, future_id: str) -> asyncio.Future | None:
         """Returns future with specified ID if any"""
         for future in self._futures:
             if future.id == future_id:
@@ -232,9 +209,10 @@ class TaskManager:
             raise RuntimeError(f"{self.name} has not started task execution yet.\n")
 
         self._continue = False # breaks outermost while loop in all ScheduleTasks
-        for fut in self._futures:
-            self._loop.call_soon_threadsafe(fut.cancel)
+        for task in self.tasks:
+            self._loop.call_soon_threadsafe(task.cancel)
         self._loop.call_soon_threadsafe(self._loop.stop)
+
         try:
             self._workthread.join()
         except:
@@ -275,7 +253,9 @@ class TaskManager:
 
     def get_tasks(self, name: str):
         """Returns a list of tasks with the specified name"""
-        matches = []
+        from .tasks import ScheduledTask
+        matches: List[ScheduledTask] = []
+
         for task in self.tasks:
             if task.name == name:
                 matches.append(task)
@@ -294,12 +274,12 @@ class TaskManager:
         self, 
         delay: int | float, 
         func: Callable, *,
-        args: Iterable[Any] = (), 
+        args: Sequence[Any] = (), 
         kwargs: Mapping[str, Any] = {}, 
         task_name: str = None
     ):
         """
-        Run function once after a specified delay in seconds.
+        Creates a task that runs a function once after a specified delay in seconds.
 
         :param delay: The number of seconds to wait before running the function
         :param func: The function to run as a task
@@ -307,6 +287,7 @@ class TaskManager:
         :param kwargs: The keyword arguments to pass to the function
         :param task_name: The name to give the task created to run the function. 
         This can make it easier to identify the task in logs in the case of errors.
+        :return: The created task
         """
         from .schedules import RunAfterEvery
         from .tasks import ScheduledTask
@@ -340,12 +321,12 @@ class TaskManager:
         func: Callable,
         tz: str | datetime.tzinfo = None,
             *,
-        args: Iterable[Any] = (), 
+        args: Sequence[Any] = (), 
         kwargs: Mapping[str, Any] = {}, 
         task_name: str = None
     ):
         """
-        Run function once at a specified time.
+        Creates a task that runs a function once at a specified time.
 
         :param time: The time to run the function. Must be in the format 'HH:MM:SS'
         :param func: The function to run as a task
@@ -354,6 +335,7 @@ class TaskManager:
         :param kwargs: The keyword arguments to pass to the function
         :param task_name: The name to give the task created to run the function. 
         This can make it easier to identify the task in logs in the case of errors.
+        :return: The created task
         """
         from .schedules import RunAt
         from .tasks import ScheduledTask
@@ -381,20 +363,28 @@ class TaskManager:
         return task
 
 
-    def stop_after(self, delay: int | float) -> None:
-        """Stop the execution of all scheduled tasks after a specified number of seconds"""
+    def stop_after(self, delay: int | float):
+        """
+        Creates a task that stops the execution of all scheduled tasks after a specified delay in seconds
+
+        :param delay: The number of seconds to wait before stopping the execution of all tasks
+        :return: The created task
+        """
         if not self.has_started:
             raise RuntimeError(f"{self.name} has not started task execution yet.\n")
-        self.run_after(delay, self.stop, task_name=f"stop_{self.name}_after_{delay}seconds")
-        return None
+        return self.run_after(delay, self.stop, task_name=f"stop_{self.name}_after_{delay}seconds")
     
 
-    def stop_at(self, time: str) -> None:
-        """Stop the execution of all scheduled tasks at a specified time. Time must be in the format 'HH:MM:SS'"""
+    def stop_at(self, time: str):
+        """
+        Creates a task that stops the execution of all scheduled tasks at the specified time
+
+        :param time: The time to stop the execution of all tasks. Must be in the format 'HH:MM:SS'
+        :return: The created task
+        """
         if not self.has_started:
             raise RuntimeError(f"{self.name} has not started task execution yet. Y\n")
-        self.run_at(time, self.stop, task_name=f"stop_{self.name}_at_{time}")
-        return None
+        return self.run_at(time, self.stop, task_name=f"stop_{self.name}_at_{time}")
     
     
     def cancel_task(self, name_or_id: str) -> None:
@@ -411,7 +401,9 @@ class TaskManager:
 
     def get_running_tasks(self):
         """Returns a list of tasks that are currently running and not paused"""
-        running_tasks = []
+        from .tasks import ScheduledTask
+        running_tasks: List[ScheduledTask] = []
+
         for task in self.tasks:
             if task.is_running:
                 running_tasks.append(task)
@@ -420,7 +412,9 @@ class TaskManager:
 
     def get_paused_tasks(self):
         """Returns a list of tasks that are currently paused"""
-        paused_tasks = []
+        from .tasks import ScheduledTask
+        paused_tasks: List[ScheduledTask] = []
+
         for task in self.tasks:
             if task.is_paused:
                 paused_tasks.append(task)
@@ -429,7 +423,9 @@ class TaskManager:
 
     def get_failed_tasks(self):
         """Returns a list of tasks that failed"""
-        failed_tasks = []
+        from .tasks import ScheduledTask
+        failed_tasks: List[ScheduledTask] = []
+
         for task in self.tasks:
             if task.failed:
                 failed_tasks.append(task)

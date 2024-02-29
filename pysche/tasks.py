@@ -2,7 +2,7 @@ from __future__ import annotations
 import uuid
 import asyncio
 import time
-from typing import Callable, Any, Iterable, Mapping, List
+from typing import Callable, Any, Sequence, Mapping, List
 import functools
 import traceback
 import datetime
@@ -10,20 +10,17 @@ import datetime
 from .manager import TaskManager
 from .bases import ScheduleType
 from .utils import SetOnceDescriptor
+from .exceptions import TaskDuplicationError
 
-
-
-class TaskDuplicationError(Exception):
-    """Raised when maximum number of duplicate task for a `TaskManger` is exceeded"""
 
 
 class TaskLogger:
     """Scheduled task logger"""
-    def __init__(self, task: ScheduledTask):
+    def __init__(self, task: ScheduledTask) -> None:
         self.task = task
         return None
     
-    def __call__(self, msg: str, err_trace: str = None, *args, **kwargs):
+    def __call__(self, msg: str, err_trace: str = None, *args, **kwargs) -> None:
         """Log message"""
         task_manager = self.task.manager
         task_manager.log(f"{task_manager.name} : [{self.task.name}] {msg}", *args, **kwargs)
@@ -45,7 +42,7 @@ class ScheduledTask:
     manager = SetOnceDescriptor(attr_type=TaskManager)
     __slots__ = (
         "_id", "func", "name", "args", "kwargs", "execute_then_wait", "stop_on_error", "max_retry", "schedule",
-        "_is_running", "_is_paused", "_failed", "_cancelled", "_errors", "_last_ran_at", "_logger", "_manager",
+        "_is_running", "_is_paused", "_failed", "_errors", "_last_ran_at", "_logger", "_manager",
         "__dict__", "__weakref__"
     )
 
@@ -55,7 +52,7 @@ class ScheduledTask:
         schedule: ScheduleType,
         manager: TaskManager,
         *,
-        args: Iterable[Any] = (),
+        args: Sequence[Any] = (),
         kwargs: Mapping[str, Any] = {},
         name: str = None,
         execute_then_wait: bool = False,
@@ -103,7 +100,6 @@ class ScheduledTask:
         self._is_running = False
         self._is_paused = False
         self._failed = False
-        self._cancelled = False
         self._errors = []
         self._last_ran_at: datetime.datetime = None
         self._logger = TaskLogger(self)
@@ -139,7 +135,9 @@ class ScheduledTask:
     @property
     def cancelled(self) -> bool:
         """Returns True if the task execution has been cancelled"""
-        return self._cancelled
+        # Check if the future handling this task's coroutine has been cancelled
+        future = self.manager._get_future(self.id)
+        return future.cancelled() if future else False
     
     @property
     def errors(self) -> List[Exception]:
@@ -168,48 +166,49 @@ class ScheduledTask:
         if self.cancelled:
             raise RuntimeError(f"{self.name} has already been cancelled. {self.name} cannot be called.")
 
-        if self.execute_then_wait is True:
-            # Execute the task first if execute_then_wait is True.
-            self.log(f"Task execution started.\n")
-            self._is_running = True
-            await self.func(*self.args, **self.kwargs)
-
-        schedule_func = self.schedule.make_schedule_func_for_task(self)
-        err_count = 0
-        while self.manager._continue and not (self.failed or self.cancelled): # The prevents the task from running when the manager has not been started (or is stopped)
-            if not self.is_running:
+        try:
+            if self.execute_then_wait is True:
+                # Execute the task first if execute_then_wait is True.
                 self.log(f"Task added for execution.\n")
                 self._is_running = True
+                await self.func(*self.args, **self.kwargs)
 
-            try:
-                await schedule_func(*self.args, **self.kwargs)
-            except (
-                SystemExit, KeyboardInterrupt, 
-                asyncio.CancelledError, RuntimeError
-            ):
-                break
-            
-            except Exception as exc:
-                self._errors.append(exc)
-                self.log(f"{exc}\n", err_trace=traceback.format_exc(), level="ERROR")
+            schedule_func = self.schedule.make_schedule_func_for_task(self)
+            err_count = 0
+            while self.manager._continue and not (self.failed or self.cancelled): # The prevents the task from running when the manager has not been started (or is stopped)
+                if not self.is_running:
+                    self.log(f"Task added for execution.\n")
+                    self._is_running = True
 
-                if self.stop_on_error or err_count >= self.max_retry:
-                    self._failed = True
-                    self._is_running = False
-                    self.log("Failed.\n", level="CRITICAL")
+                try:
+                    await schedule_func(*self.args, **self.kwargs)
+                except (
+                    SystemExit, KeyboardInterrupt, 
+                    asyncio.CancelledError, RuntimeError
+                ):
                     break
-                err_count += 1
-                continue
-        
-        # If task exits loop, task has stopped executing
-        if self.is_running:
-            self.log("Task execution stopped.\n")
-            self._is_running = False
+                
+                except Exception as exc:
+                    self._errors.append(exc)
+                    self.log(f"{exc}\n", err_trace=traceback.format_exc(), level="ERROR")
+
+                    if self.stop_on_error or err_count >= self.max_retry:
+                        self._failed = True
+                        self._is_running = False
+                        self.log("Task execution failed.\n", level="CRITICAL")
+                        break
+                    err_count += 1
+                    continue
+        finally:
+            # If task exits loop, task has stopped executing
+            if self.is_running:
+                self.log("Task execution stopped.\n")
+                self._is_running = False
         return None
 
     
     def __repr__(self) -> str:
-        return f"<{self.__class__.__name__} {self.status} name='{self.name}' func='{self.func.__name__}'>"
+        return f"<{self.__class__.__name__} {self.status} func=<{self.func.__name__}> name='{self.name}'>"
     
 
     def _wrap_func_for_time_stats(self, func: Callable) -> Callable:
@@ -226,13 +225,13 @@ class ScheduledTask:
 
     def update(self, **kwargs) -> None:
         """
-        Update task (Instantiation parameters)
+        Update task's attributes (Instantiation parameters)
+
+        :param **kwargs: new attributes and their values to update with
         """
         if kwargs.get("func", None):
             kwargs["func"] = self.manager._make_asyncable(kwargs["func"])
-            kwargs["func"].has_been_done_first = self.func.has_been_done_first
-            if hasattr(self.func, "has_run"):
-                kwargs["func"].has_run = self.func.has_run
+            
         for key, val in kwargs.items():
             setattr(self, key, val)
         return None
@@ -270,6 +269,7 @@ class ScheduledTask:
         """Wait for task to finish running before proceeding"""
         while self.is_running:
             try:
+                time.sleep(0.0001)
                 continue
             except (SystemExit, KeyboardInterrupt):
                 break
@@ -286,7 +286,7 @@ class ScheduledTask:
     
 
     def resume(self) -> None:
-        """Resume task"""
+        """Resume paused task"""
         if not self.is_paused:
             return
         self._is_paused = False
@@ -295,51 +295,81 @@ class ScheduledTask:
     
 
     def pause_after(self, delay: int | float) -> ScheduledTask:
-        """Pause task after specified delay in seconds"""
+        """
+        Create a new task to pause this task after specified delay in seconds
+
+        :param delay: The delay in seconds after which this task will be paused
+        :return: The created task
+        """
         return self.manager.run_after(delay, self.pause, task_name=f"pause_{self.name}_after_{delay}s")
 
 
     def pause_for(self, seconds: int | float) -> ScheduledTask:
-        """Pause task for a specified number of seconds then resume"""
+        """
+        Pauses this task and creates a new task to resume this task after the specified number of seconds
+
+        :param seconds: The number of seconds to pause this task for
+        :return: The created task 
+        """
         self.pause()
         return self.manager.run_after(seconds, self.resume, task_name=f"resume_{self.name}_after_{seconds}s")
 
 
     def pause_until(self, time: str) -> ScheduledTask:
-        """Pause task then resume at specified time. Time should be in the format 'HH:MM:SS'"""
+        """
+        Pauses this task and creates a new task to resume this task at specified time. 
+
+        :param time: The time to resume this task. Time should be in the format 'HH:MM:SS'
+        :return: The created task
+        """
         self.pause()
         return self.manager.run_at(time, self.resume, task_name=f"resume_{self.name}_at_{time}")
     
 
-    def pause_at(self, time: str) -> None:
-        """Pause task at a specified time. Time should be in the format 'HH:MM:SS'"""
-        self.manager.run_at(time, self.pause, task_name=f"pause_{self.name}_at_{time}")
-        return None
+    def pause_at(self, time: str) -> ScheduledTask:
+        """
+        Creates a new task that pauses this task at a specified time.
+
+        :param time: The time to pause this task. Time should be in the format 'HH:MM:SS'
+        :return: The created task
+        """
+        return self.manager.run_at(time, self.pause, task_name=f"pause_{self.name}_at_{time}")
     
 
     def update_after(self, delay: int | float, **kwargs) -> ScheduledTask:
         """
-        Delay an update. Update task after a specified number of seconds
+        Delays an update. Creates a new task that updates this task after the specified delay
 
         Never attempt to update the manager. Doing so will result in unexpected behaviour.
+
+        :param delay: The delay in seconds after which this task will be updated
+        :param kwargs: The update parameters
+        :return: The created task
         """
         return self.manager.run_after(delay, self.update, task_name=f"update_{self.name}_after_{delay}s", kwargs=kwargs)
 
 
     def update_at(self, time: str, **kwargs) -> ScheduledTask:
         """
-        Delay an update. Update task at a specified time
+        Delays an update. Creates a new task that updates this task at the specified time
 
         Never attempt to update the manager. Doing so will result in unexpected behaviour.
+
+        :param time: The time to update this task. Time should be in the format 'HH:MM:SS'
+        :param kwargs: The update parameters
+        :return: The created task
         """
         return self.manager.run_at(time, lambda: self.update(**kwargs), task_name=f"update_{self.name}_at_{time}")
 
     
-    def cancel(self) -> None:
+    def cancel(self, wait: bool = False) -> None:
         """
         Cancel task. Cancelling a task will invalidate task execution by the manager.
 
         Note that cancelling a task will not stop the manager from executing other tasks.
+
+        :param wait: If True, wait for the current iteration of this task's 
+        execution to end before cancelling.
         """
         task_future = self.manager._get_future(self.id)
         if task_future is None:
@@ -347,26 +377,38 @@ class ScheduledTask:
                 # If task is running or has run before and a future cannot 
                 # be found for the task then `manager._futures` has been tampered with.
                 # Raise a runtime error for this
-                raise RuntimeError(f"{self.__class__.__name__}: Cannot find future '{self.id}' in manager. '_tasks' is out of sync with '_futures'.\n")
+                raise RuntimeError(
+                    f"{self.__class__.__name__}: Cannot find future '{self.id}' in manager. '_tasks' is out of sync with '_futures'.\n"
+                )
         else: 
-            self.manager._loop.call_soon_threadsafe(task_future.cancel)
+            task_future.cancel()
             self.manager._futures.remove(task_future)
-            task_future.__del__()
+            del task_future
 
         self.manager._tasks.remove(self)
-        self.join()
-        self._cancelled = True
+        if wait is True:
+            self.join()
         self.log("Task cancelled.\n")
         return None
 
 
     def cancel_after(self, delay: int | float) -> ScheduledTask:
-        """Cancel task after specified delay in seconds"""
+        """
+        Creates a new task that cancels this task after specified delay in seconds
+
+        :param delay: The delay in seconds after which this task will be cancelled
+        :return: The created task
+        """
         return self.manager.run_after(delay, self.cancel, task_name=f"cancel_{self.name}_after_{delay}s")
     
 
     def cancel_at(self, time: str) -> ScheduledTask:
-        """Cancel task at a specified time. Time should be in the format 'HH:MM:SS'"""
+        """
+        Creates a new task that cancels this task at a specified time
+
+        :param time: The time to cancel this task. Time should be in the format 'HH:MM:SS'
+        :return: The created task
+        '"""
         return self.manager.run_at(time, self.cancel, task_name=f"cancel_{self.name}_at_{time}")
 
 
@@ -382,7 +424,9 @@ def scheduledtask(
     start_immediately: bool = True,
 ) -> Callable[[Callable], Callable[..., ScheduledTask]]:
     """
-    Decorator to schedule a function to run on a specified schedule.
+    Decorator for creating a scheduled task.
+
+    Calling the decorated function will create and return a new scheduled task.
 
     :param schedule: The schedule for the task.
     :param manager: The manager to execute the task.
@@ -390,8 +434,9 @@ def scheduledtask(
     :param execute_then_wait: If True, the function will be run first before waiting for the schedule.
     :param stop_on_error: If True, the task will stop running when an error is encountered.
     :param max_retry: The maximum number of times the task will be retried when an error is encountered.
-    :param start_immediately: If True, the task will start immediately after creation. This is only applicable if the manager is already running.
-    If the manager is not running, the task will start when the manager is started.
+    :param start_immediately: If True, the task will start immediately after creation. 
+    This is only applicable if the manager has already started task execution.
+    If the manager has not task execution, the task will start when the manager starts.
     """
     decorator = schedule(
         manager=manager,

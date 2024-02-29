@@ -151,12 +151,12 @@ class Schedule(AbstractBaseSchedule):
 
         async def schedule_func(*args, **kwargs) -> None:
             # If the schedule has a timedelta, sleep for the timedelta period
-            if self.timedelta is not None:
+            if self.timedelta is not None and scheduledtask.is_paused is False:
                 await asyncio.sleep(self.timedelta.total_seconds())
 
             # If the task is paused, do not proceed
             while scheduledtask.is_paused is True:
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.0001)
                 continue
             
             if await schedule_is_due() is True:
@@ -199,7 +199,7 @@ class Schedule(AbstractBaseSchedule):
         if self.parent:
             # If the schedule has a parent(s) return the representation of the parent(s) and the schedule
             # joined together in the same order as they are chained.
-            return f"{".".join([ repr(ancestor) for ancestor in self.get_ancestors() ])}.{repr(self)}"
+            return f"{'.'.join([ repr(ancestor) for ancestor in self.get_ancestors() ])}.{repr(self)}"
         # Just return the representation of the schedule.
         return repr(self)
 
