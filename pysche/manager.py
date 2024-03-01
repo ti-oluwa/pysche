@@ -10,7 +10,10 @@ import functools
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from bs4_web_scraper.logger import Logger
 
-from .utils import get_current_datetime, _RedirectStandardOutputStream
+from .utils import (
+    get_current_datetime, _RedirectStandardOutputStream, 
+    parse_datetime, get_datetime_now
+)
 from .exceptions import UnregisteredTask
 
 
@@ -221,14 +224,6 @@ class TaskManager:
         return None
     
 
-    def restart(self) -> None:
-        """Quick way to restart all tasks"""
-        if self.has_started:
-            self.stop()
-        self.start()
-        return None
-
-
     def shutdown(self) -> None:
         """
         Cancel all tasks and shutdown.
@@ -243,7 +238,7 @@ class TaskManager:
         return None
 
 
-    def is_managing(self, name_or_id: str) -> bool:
+    def is_managing(self, name_or_id: str, /) -> bool:
         """Check if the task manager is managing a task with the specified name or ID"""
         for task in self.tasks:
             if task.name == name_or_id or task.id == name_or_id:
@@ -273,7 +268,8 @@ class TaskManager:
     def run_after(
         self, 
         delay: int | float, 
-        func: Callable, *,
+        func: Callable, 
+        /, *,
         args: Sequence[Any] = (), 
         kwargs: Mapping[str, Any] = {}, 
         task_name: str = None
@@ -315,12 +311,67 @@ class TaskManager:
         return task
     
 
+    def run_on(
+        self, 
+        datetime: str, 
+        func: Callable, 
+        /, *,
+        tz: str | datetime.tzinfo = None,
+        args: Sequence[Any] = (), 
+        kwargs: Mapping[str, Any] = {}, 
+        task_name: str = None
+    ):
+        """
+        Creates a task that runs the function on a specified datetime.
+
+        :param datetime: The datetime to run the function. It should be in the format 'YYYY-MM-DD HH:MM:SS'
+        :param func: The function to run as a task
+        :param tz: The timezone to use. Defaults to local timezone.
+        :param args: The arguments to pass to the function
+        :param kwargs: The keyword arguments to pass to the function
+        :param task_name: The name to give the task created to run the function. 
+        This can make it easier to identify the task in logs in the case of errors.
+        :return: The created task
+        """
+        dt = parse_datetime(datetime, tz)
+        now = get_datetime_now(tz)
+        print(dt)
+        if dt < now:
+            raise ValueError("datetime cannot be in the past")
+        timedelta = dt - now
+        
+        from .schedules import RunAfterEvery
+        from .tasks import ScheduledTask
+        # Wraps function such that the function runs once and then the task is cancelled
+        @functools.wraps(func)
+        def _wrapper(*args, **kwargs):
+            try:
+                func(*args, **kwargs)
+            finally:
+                _wrapper.task.cancel()
+        
+        task = ScheduledTask(
+            func=_wrapper,
+            schedule=RunAfterEvery(seconds=timedelta.total_seconds()),
+            manager=self,
+            args=args,
+            kwargs=kwargs,
+            name=task_name or f"run_{func.__name__}_on_{dt}",
+            stop_on_error=True,
+            max_retry=0,
+            start_immediately=False,
+        )
+        _wrapper.task = task
+        task.start()
+        return task
+    
+
     def run_at(
         self, 
         time: str, 
-        func: Callable,
+        func: Callable, 
+        /, *,
         tz: str | datetime.tzinfo = None,
-            *,
         args: Sequence[Any] = (), 
         kwargs: Mapping[str, Any] = {}, 
         task_name: str = None
@@ -330,7 +381,7 @@ class TaskManager:
 
         :param time: The time to run the function. Must be in the format 'HH:MM:SS'
         :param func: The function to run as a task
-        :param tz: The timezone to use when running the function. Defaults to local timezone.
+        :param tz: The timezone to use. Defaults to local timezone.
         :param args: The arguments to pass to the function
         :param kwargs: The keyword arguments to pass to the function
         :param task_name: The name to give the task created to run the function. 
@@ -363,7 +414,7 @@ class TaskManager:
         return task
 
 
-    def stop_after(self, delay: int | float):
+    def stop_after(self, delay: int | float, /):
         """
         Creates a task that stops the execution of all scheduled tasks after a specified delay in seconds
 
@@ -375,7 +426,7 @@ class TaskManager:
         return self.run_after(delay, self.stop, task_name=f"stop_{self.name}_after_{delay}seconds")
     
 
-    def stop_at(self, time: str):
+    def stop_at(self, time: str, /):
         """
         Creates a task that stops the execution of all scheduled tasks at the specified time
 
@@ -387,7 +438,7 @@ class TaskManager:
         return self.run_at(time, self.stop, task_name=f"stop_{self.name}_at_{time}")
     
     
-    def cancel_task(self, name_or_id: str) -> None:
+    def cancel_task(self, name_or_id: str, /) -> None:
         """Cancel all tasks with the specified name or ID"""
         if not self.is_managing(name_or_id):
             raise UnregisteredTask(f"Task '{name_or_id}' is not registered with {self.name}")

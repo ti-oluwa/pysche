@@ -160,7 +160,7 @@ class Schedule(AbstractBaseSchedule):
                 continue
             
             if await schedule_is_due() is True:
-                scheduledtask._last_ran_at = datetime.datetime.now(tz=self.tz)
+                scheduledtask._last_ran_at = get_datetime_now(self.tz)
                 await scheduledtask.func(*args, **kwargs)
             return
 
@@ -179,7 +179,7 @@ class Schedule(AbstractBaseSchedule):
         run_in_march_from_mon_to_fri_at_12_30pm = RunInMonth(month=3).from_weekday__to(_from=0, _to=4).at("12:30:00")
 
         print(run_in_march_from_mon_to_fri_at_12_30pm.get_ancestors())
-        # [RunInMonth(month=3), RunInMonth(month=3).RunFromWeekday__To(_from=0, _to=4)]
+        # [RunInMonth(month=3), RunFromWeekday__To(_from=0, _to=4)]
         """
         ancestors = []
         if self.parent:
