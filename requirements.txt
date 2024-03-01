@@ -1,1 +1,2 @@
-bs4_web_scraper
+simple_file_handler
+rich

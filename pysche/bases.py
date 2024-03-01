@@ -33,10 +33,14 @@ class AbstractBaseSchedule(ABC):
 
         :param manager: The manager to execute the task.
         :param name: The name of the task. If not specified, the name of the function will be used.
-        :param execute_then_wait: If True, the task will be executed immediately before waiting for the schedule to be due.
-        :param stop_on_error: If True, the task will stop running if an exception is encountered.
-        :param max_retry: The maximum number of times the task will be retried if an exception is encountered.
-        :param start_immediately: If True, the task will start immediately after being created.
+        :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
+        Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
+        without retry, irrespective of `stop_on_error` or `max_retry`
+        :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
+        :param max_retry: The maximum number of times the task will be retried after an error is encountered.
+        :param start_immediately: If True, the task will start immediately after creation. 
+        This is only applicable if the manager is already running.
+        Otherwise, task execution will start when the manager starts executing tasks.
         """
         from .tasks import ScheduledTask
         def decorator(func: Callable) -> Callable[..., ScheduledTask]:
@@ -57,6 +61,7 @@ class AbstractBaseSchedule(ABC):
                 )
             wrapper.__name__ = name or func.__name__
             return wrapper
+        
         return decorator
 
     @abstractmethod
@@ -119,7 +124,7 @@ class Schedule(AbstractBaseSchedule):
         if not self.tz:
             self.tz = utcoffset_to_zoneinfo(get_datetime_now().utcoffset())
         return None
-    
+
 
     def __call__(
         self, 

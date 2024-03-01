@@ -4,7 +4,6 @@ import asyncio
 import time
 from typing import Callable, Any, Coroutine, Sequence, Mapping, List
 import functools
-import traceback
 import datetime
 try:
     import zoneinfo
@@ -18,29 +17,6 @@ from .exceptions import TaskDuplicationError
 
 
 
-class TaskLogger:
-    """Scheduled task logger"""
-    def __init__(self, task: ScheduledTask) -> None:
-        self.task = task
-        return None
-    
-    def __call__(self, msg: str, err_trace: str = None, *args, **kwargs) -> None:
-        """Log message"""
-        task_manager = self.task.manager
-        task_manager.log(f"{task_manager.name} : [{self.task.name}] {msg}", *args, **kwargs)
-        
-        if err_trace:
-            # If exception traceback is provided, 
-            # do not log to console. Log to file only to prevent
-            # leakage of sensitive information to console
-            og_state = task_manager._logger.to_console
-            task_manager._logger.to_console = False
-            task_manager.log(f"{task_manager.name} : [{self.task.name}] last error detail: \n{err_trace}\n", *args, **kwargs)
-            task_manager._logger.to_console = og_state
-        return None
-
-
-
 class ScheduledTask:
     """Task that runs a function on a specified schedule"""
     id = SetOnceDescriptor(attr_type=str)
@@ -48,8 +24,9 @@ class ScheduledTask:
     schedule = SetOnceDescriptor(attr_type=Schedule)
     func = SetOnceDescriptor(validators=[asyncio.iscoroutinefunction])
     __slots__ = (
-        "name", "args", "kwargs", "execute_then_wait", "stop_on_error", "max_retry",
-        "_is_running", "_is_paused", "_failed", "_errors", "_last_ran_at", "_logger",
+        "name", "args", "kwargs", "execute_then_wait", 
+        "stop_on_error", "max_retry", "_is_running", 
+        "_is_paused", "_failed", "_errors", "_last_ran_at", 
         "__dict__", "__weakref__"
     )
 
@@ -112,20 +89,11 @@ class ScheduledTask:
         self._failed = False
         self._errors = []
         self._last_ran_at: datetime.datetime = None
-        self._logger = TaskLogger(self)
         self.manager._tasks.append(self)
         if start_immediately:
             self.start()
         return None
     
-    @property
-    def log(self) -> TaskLogger:
-        """Returns task's logger"""
-        if not self._logger.task is self:
-            raise RuntimeError(
-                f"{self.name}._logger.task should be '{self.name}'"
-            )
-        return self._logger
     
     @property
     def is_running(self) -> bool:
@@ -184,6 +152,20 @@ class ScheduledTask:
         )
     
 
+    def log(self, msg: str, exception: str = False, **kwargs) -> None:
+        """
+        Record a task log.
+
+        :param msg: The message to be logged.
+        :param exception: If True, the message will be logged as an exception.
+        """
+        self.manager.log(f"{self.manager.name} : [{self.name}] {msg}", **kwargs)
+        if exception:
+            kwargs.pop("level", None)
+            self.manager.log(f"An exception occurred: ", level="DEBUG", exc_info=1, **kwargs)
+        return None
+
+    
     async def __call__(self) -> Coroutine[Any, Any, None]:
         """Returns a coroutine that will be run to execute this task"""
         if self.cancelled:
@@ -214,7 +196,7 @@ class ScheduledTask:
                 
                 except Exception as exc:
                     self._errors.append(exc)
-                    self.log(f"{exc}\n", err_trace=traceback.format_exc(), level="ERROR")
+                    self.log(f"{exc}\n", level="ERROR", exception=True)
 
                     if self.stop_on_error is True or err_count >= self.max_retry:
                         self._failed = True
@@ -224,8 +206,6 @@ class ScheduledTask:
 
                     err_count += 1
                     continue
-        except Exception as exc:
-            print(exc)
         finally:
             # If task exits loop, task has stopped executing
             if self.is_running:
@@ -434,6 +414,10 @@ class ScheduledTask:
         else: 
             task_future.cancel()
             self.manager._futures.remove(task_future)
+            try:
+                task_future.result()
+            except:
+                pass
             del task_future
 
         self.manager._tasks.remove(self)

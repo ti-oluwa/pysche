@@ -1,6 +1,6 @@
 from collections.abc import Coroutine
 import datetime
-import sys
+import logging
 from collections import deque
 import threading
 import time
@@ -8,13 +8,11 @@ from typing import Any, Callable, Dict, Sequence, List, Mapping
 import asyncio
 import functools
 from concurrent.futures import CancelledError, ThreadPoolExecutor
-from bs4_web_scraper.logger import Logger
 
-from .utils import (
-    get_current_datetime, _RedirectStandardOutputStream, 
-    parse_datetime, get_datetime_now
-)
+
+from .utils import _RedirectStandardOutputStream, parse_datetime, get_datetime_now
 from .exceptions import UnregisteredTask
+from .logging import get_logger
 
 
 
@@ -22,10 +20,9 @@ class TaskManager:
     """
     Manages scheduled tasks.
     """
-    log_to_console = True
     __slots__ = (
         "name", "_tasks", "_futures", "_continue", "_loop", 
-        "_workthread", "_executor", "max_duplicates", "_logger"
+        "_workthread", "_executor", "max_duplicates", "logger"
     )
 
     def __init__(self, name: str = None, max_duplicates: int = 1, log_to: str = None):
@@ -53,13 +50,12 @@ class TaskManager:
         self._workthread: threading.Thread | None = None
         self._executor: ThreadPoolExecutor = ThreadPoolExecutor(thread_name_prefix=f"{self.name}_sync_to_async_executor")
         self.max_duplicates = max_duplicates
-
-        if log_to:
-            self._logger = Logger(name=f'{self.__class__.__name__.lower()}{id(self)}', log_filepath=log_to)
-            self._logger.to_console = self.log_to_console
-            self._logger.date_format = "%Y-%m-%d %H:%M:%S (%z)"
-        else: 
-            self._logger = None
+        self.logger = get_logger(
+            name=f"{self.name}_logger",
+            logfile_path=log_to,
+            base_level="DEBUG",
+            date_format="%Y-%m-%d %H:%M:%S (%z)"
+        )
         return None
     
     
@@ -335,7 +331,6 @@ class TaskManager:
         """
         dt = parse_datetime(datetime, tz)
         now = get_datetime_now(tz)
-        print(dt)
         if dt < now:
             raise ValueError("datetime cannot be in the past")
         timedelta = dt - now
@@ -483,34 +478,14 @@ class TaskManager:
         return failed_tasks
     
 
-    def log(self, msg: str, level: str = "INFO") -> None:
+    def log(self, msg: object, level: str = "INFO", **kwargs) -> None:
         """
-        Log message to console and to log file (if `log_to` is set)
-        :param msg: message to log.
-        :param level: Log level. Defaults to INFO. Level only applies if 
-        `log_to` is provided on class instantiation.
+        Log message to console and/or to log file.
+
+        :param msg: The message to log
+        :param level: The log level. Defaults to "INFO"
+        :param kwargs: Additional keyword arguments to pass to `logger.log`
         """
-        if self._logger:
-            self._logger.log(msg, level)
-        else:
-            if self.log_to_console:
-                msg = f"{get_current_datetime(with_tz=True)} - {level} - {msg}\n"
-                sys.stdout.write(msg)
-        return None
-
-
-    def clear_log_history(self) -> None:
-        """Clear all logs in log file"""
-        if self._logger:
-            self._logger.clear_logs()
-        return None
-    
-
-    def start_new_log(self, log_filepath: str) -> None:
-        """Start a new log history in a new file"""
-        if self._logger:
-            old_logger = self._logger
-            self._logger = Logger(name=self._logger._logger.name, log_filepath=log_filepath)
-            self._logger.to_console = old_logger.to_console
-        return None
+        level = getattr(logging, level.upper())
+        return self.logger.log(level, msg, **kwargs)
     

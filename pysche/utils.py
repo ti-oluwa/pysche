@@ -106,9 +106,13 @@ class SetOnceDescriptor:
         """
         Initialize the descriptor
 
-        :param attr_type: type of value expected for the attribute. 
+        :param attr_type: Type of value expected for the attribute. 
         If the value is not of this type and is not None, a TypeError is raised
-        :param validators: list of validators to be used to validate the attribute's value
+        :param validators: list of validators to be used to validate the attribute's value.
+
+        The validators are callables that take the attribute's value as an argument and return True if the value is valid.
+        However the validator are also allowed to raise their own exceptions if the value is not valid. This is especially
+        useful when the validation logic is complex or custom exception message is needed.
         """
         if attr_type is not None and not inspect.isclass(attr_type):
             raise TypeError('attr_type must be a class')
@@ -151,13 +155,16 @@ class SetOnceDescriptor:
 
     def __set__(self, instance, value) -> None:
         """
-        Set the attribute value on the instance
+        Set the attribute value on the instance.
+        The attributes value can only be set to a not-None value once,
+        after which it cannot be changed.
 
         :param instance: instance of the class
         :param value: value to be set
+        :raises AttributeError: if the attribute has already been set
         """
         if self.name in instance.__dict__ and instance.__dict__[self.name] is not None:
-            raise AttributeError(f'Attribute {self.name} has already been set')
+            raise AttributeError(f'Not allowed! Attribute {self.name} has already been set')
         
         if value is not None and self.attr_type is not None:
             if not isinstance(value, self.attr_type):
