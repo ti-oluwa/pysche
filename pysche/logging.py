@@ -11,8 +11,8 @@ def get_logger(
         logfile_path: str = None,
         to_console: bool = True, 
         base_level: str = "DEBUG",
-        format: str = "%(asctime)s - %(levelname)s - %(message)s",
-        date_format: str = "%d/%m/%Y %H:%M:%S (%Z)",
+        format: str = "%(asctime)s  %(levelname)s  %(message)s",
+        date_format: str = "%d/%m/%Y %H:%M:%S (%z)",
         file_mode: str = 'a+',
     ) -> logging.Logger:
     """
@@ -36,27 +36,32 @@ def get_logger(
                 raise ValueError('Invalid extension type for log file')
     
     logger = logging.getLogger(name)
-    formatter = logging.Formatter(fmt=format, datefmt=date_format)
     if logfile_path is not None:
-        file = RotatingFileHandler(
+        file_handler = RotatingFileHandler(
             filename=logfile_path, 
             mode=file_mode, 
             maxBytes=10*1024*1024, # 10MB 
             backupCount=10
         )
-        file.setFormatter(formatter)
-        logger.addHandler(file)
+        formatter = logging.Formatter(fmt=format, datefmt=date_format)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
 
     if to_console is True:
-        error_console = Console(stderr=True)
-        rich_console = RichHandler(
+        error_console = Console(stderr=True, height=30, color_system="auto")
+        rich_handler = RichHandler(
             console=error_console, 
-            show_time=True, 
-            rich_tracebacks=True
+            show_time=False,
+            rich_tracebacks=True,
+            markup=True
         )
-        rich_console = logging.StreamHandler()
-        rich_console.setFormatter(formatter)
-        logger.addHandler(rich_console)
+        formatter = logging.Formatter(
+            fmt=format.replace("%(levelname)s", ""), 
+            datefmt=date_format
+        )
+        rich_handler.setFormatter(formatter)
+        rich_handler.setLevel(base_level.upper())
+        logger.addHandler(rich_handler)
 
     logger.setLevel(base_level.upper())
     return logger

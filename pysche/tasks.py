@@ -12,7 +12,8 @@ except ImportError:
 
 from .manager import TaskManager
 from .bases import ScheduleType, Schedule
-from .utils import SetOnceDescriptor, get_datetime_now
+from .utils import get_datetime_now
+from .descriptors import SetOnceDescriptor
 from .exceptions import TaskDuplicationError
 
 
@@ -159,10 +160,10 @@ class ScheduledTask:
         :param msg: The message to be logged.
         :param exception: If True, the message will be logged as an exception.
         """
-        self.manager.log(f"{self.manager.name} : [{self.name}] {msg}", **kwargs)
+        self.manager.log(f"{self.manager.name}({self.name})  {msg}", **kwargs)
         if exception:
             kwargs.pop("level", None)
-            self.manager.log(f"An exception occurred: ", level="DEBUG", exc_info=1, **kwargs)
+            self.manager.log("An exception occurred: ", level="DEBUG", exc_info=1, **kwargs)
         return None
 
     
@@ -174,7 +175,7 @@ class ScheduledTask:
         try:
             if self.execute_then_wait is True:
                 # Execute the task first if execute_then_wait is True.
-                self.log(f"Task added for execution.\n")
+                self.log("Task added for execution.\n")
                 self._is_running = True
                 self._last_ran_at = get_datetime_now(self.schedule.tz)
                 await self.func(*self.args, **self.kwargs)
@@ -183,7 +184,7 @@ class ScheduledTask:
             err_count = 0
             while self.manager._continue and not (self.failed or self.cancelled): # The prevents the task from running when the manager has not been started (or is stopped)
                 if not self.is_running:
-                    self.log(f"Task added for execution.\n")
+                    self.log("Task added for execution.\n")
                     self._is_running = True
 
                 try:
@@ -222,7 +223,7 @@ class ScheduledTask:
         """Wrap function to log time stats"""
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> Any:
-            self.log(f"Executing task...\n")
+            self.log("Executing task...\n")
             start_timestamp = time.time()
             r = func(*args, **kwargs)
             self.log(f"Task execution completed in {time.time() - start_timestamp :.4f} seconds.\n")
@@ -234,7 +235,7 @@ class ScheduledTask:
         """
         Update task's attributes (Instantiation parameters)
 
-        :param **kwargs: new attributes and their values to update with
+        :param **kwargs: new attributes and the values to update them with
         """
         for key, val in kwargs.items():
             try:
@@ -414,10 +415,6 @@ class ScheduledTask:
         else: 
             task_future.cancel()
             self.manager._futures.remove(task_future)
-            try:
-                task_future.result()
-            except:
-                pass
             del task_future
 
         self.manager._tasks.remove(self)

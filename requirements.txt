@@ -1,2 +1,2 @@
-simple_file_handler
-rich
+simple_file_handler==0.0.1
+rich==13.7.1

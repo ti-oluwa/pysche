@@ -1,11 +1,13 @@
 import datetime
 from typing import Any
 
+from .manager import TaskManager
 from .bases import Schedule
 from .utils import (
-    SetOnceDescriptor, parse_datetime, MinMaxValidator as minmax,
-    get_current_datetime_from_time, parse_time, get_datetime_now
+    parse_datetime, MinMaxValidator as minmax,
+    construct_datetime_from_time, parse_time, get_datetime_now
 )
+from .descriptors import SetOnceDescriptor, AttributeDescriptor
 
 
 month_validator = minmax(1, 12)
@@ -16,6 +18,7 @@ weekday_validator = minmax(0, 6)
 
 class RunAt(Schedule):
     """Task will run at the specified time, everyday"""
+    timedelta = AttributeDescriptor(attr_type=datetime.timedelta, default=None)
     time = SetOnceDescriptor(attr_type=datetime.time)
 
     def __init__(self, time: str = None, **kwargs) -> None:
@@ -36,23 +39,50 @@ class RunAt(Schedule):
         """
         super().__init__(**kwargs)
         self.time = parse_time(time=time, tzinfo=self.tz)
-        datetime_from_time = get_current_datetime_from_time(self.time)
+        self.timedelta = self.get_next_occurrence_of_time(self.time)
+        return None
+
+
+    def get_next_occurrence_of_time(self, time: datetime.time) -> datetime.timedelta:
+        """
+        Calculates the timedelta to the next occurrence of the specified time in the given datetime.
+        If the time is in the future, the timedelta will be the difference between the current time and the specified time.
+        """
+        # Since we cannot compare a time to a datetime, we need to convert the time to a datetime
+        # The date part of the datetime will be the today's date and the time part will be the specified time.
+        datetime_from_time = construct_datetime_from_time(time)
         current_datetime = get_datetime_now(tzinfo=self.tz)
 
+        # If the datetime_from_time is greater than the current_datetime, then given time has not occurred today
+        # E.g: 
+        # time = 12:00:00
+        # datetime_from_time = 2021-10-10 12:00:00
+        # current_datetime = 2021-10-10 11:00:00
+        # 'time' (12:00:00) has not occurred today since the current time is still 11:00:00
+        # Hence, the timedelta will be the difference between the specified time and the current time.
         if datetime_from_time > current_datetime: 
-            # That is, the time is in the future
-            self.timedelta = datetime_from_time - current_datetime
-        else:
-            # If the time is in the past, the time will be due the next day minus 
-            # the time difference between the current time and the specified time.
-            self.timedelta = datetime.timedelta(days=1) - (current_datetime - datetime_from_time)
-        return None
+            return datetime_from_time - current_datetime
+        
+        # If the datetime_from_time is less than the current_datetime, then given time has occurred today
+        # The next occurrence of time will be the next day
+        # E.g:
+        # time = 12:00:00
+        # datetime_from_time = 2021-10-10 12:00:00
+        # current_datetime = 2021-10-10 13:00:00
+        # 'time' (12:00:00) has occurred today since the current time is already 13:00:00
+        # Hence, the timedelta will be the difference between one day from now, and the 
+        # difference between the current time and the specified time.
+        return datetime.timedelta(days=1) - (current_datetime - datetime_from_time)
     
 
     def is_due(self) -> bool:
+        is_due = True
         if self.parent:
-            return self.parent.is_due()
-        return True
+            is_due = self.parent.is_due() and is_due
+
+        if is_due:
+            self.timedelta = self.get_next_occurrence_of_time(self.time)
+        return is_due
     
         
 
@@ -224,6 +254,8 @@ class From__ToMixin:
         return RunFrom__To(_from=_from, _to=_to, parent=self)
 
 
+# A value to represent the absence of a timedelta
+NO_TIMEDELTA = object()
 
 class TimePeriodSchedule(From__ToMixin, AtMixin, AfterEveryMixin, Schedule):
     """
@@ -239,8 +271,33 @@ class TimePeriodSchedule(From__ToMixin, AtMixin, AfterEveryMixin, Schedule):
     ).afterevery(seconds=5)
     ```
     """
-    timedelta = SetOnceDescriptor(attr_type=None, default=None)
-    pass
+    timedelta = SetOnceDescriptor(default=NO_TIMEDELTA)
+    
+    def __call__(
+        self, 
+        *, 
+        manager: TaskManager, 
+        name: str = None, 
+        execute_then_wait: bool = False, 
+        stop_on_error: bool = False, 
+        max_retry: int = 0, 
+        start_immediately: bool = True
+    ):
+        if self.timedelta is NO_TIMEDELTA:
+            raise ValueError(
+                f"The '{self.__class__.__name__}' schedule cannot be used solely to create a task."
+                " It has to be chained with a schedule that has its timedelta defined to form a useable schedule clause."
+            )
+        return super().__call__(
+            manager=manager, 
+            name=name, 
+            execute_then_wait=execute_then_wait, 
+            stop_on_error=stop_on_error, 
+            max_retry=max_retry, 
+            start_immediately=start_immediately
+        )
+    
+
 
 
 

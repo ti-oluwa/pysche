@@ -10,7 +10,8 @@ except ImportError:
 from abc import ABC, abstractmethod
 
 from .manager import TaskManager
-from .utils import SetOnceDescriptor, utcoffset_to_zoneinfo, get_datetime_now
+from .utils import utcoffset_to_zoneinfo, get_datetime_now
+from .descriptors import SetOnceDescriptor
 
 
 
@@ -125,31 +126,6 @@ class Schedule(AbstractBaseSchedule):
             self.tz = utcoffset_to_zoneinfo(get_datetime_now().utcoffset())
         return None
 
-
-    def __call__(
-        self, 
-        *, 
-        manager: TaskManager, 
-        name: str = None, 
-        execute_then_wait: bool = False, 
-        stop_on_error: bool = False, 
-        max_retry: int = 0, 
-        start_immediately: bool = True
-    ):
-        if self.timedelta is None:
-            raise ValueError(
-                f"The '{self.__class__.__name__}' schedule cannot be used solely to create a task."
-                " It has to be chained with a schedule that has its timedelta defined to form a useable schedule clause."
-            )
-        return super().__call__(
-            manager=manager, 
-            name=name, 
-            execute_then_wait=execute_then_wait, 
-            stop_on_error=stop_on_error, 
-            max_retry=max_retry, 
-            start_immediately=start_immediately
-        )
-    
 
     def make_schedule_func_for_task(self, scheduledtask) -> Callable[..., Coroutine[Any, Any, None]]:
         schedule_is_due: Callable[..., bool] = scheduledtask.manager._make_asyncable(self.is_due)

@@ -2,3 +2,4 @@
 **/tests/fixtures/
 logs.log
 logs2.log
+.ruff*

@@ -1,3 +1,4 @@
+from collections import deque
 import unittest
 import asyncio
 import threading
@@ -5,8 +6,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 import os
 
 from pysche.manager import TaskManager
-from pysche.schedules.bases import RunAfterEvery
-from pysche.pysche.tasks import ScheduledTask
+from pysche.schedules import RunAfterEvery
+from pysche.tasks import ScheduledTask
 from tests.mock import *
 
 
@@ -25,15 +26,14 @@ class TestTaskManager(unittest.TestCase):
         self.assertEqual(manager.name, "TestTaskManager")
         self.assertTrue(os.path.exists(self.log_path))
         self.assertEqual(manager.max_duplicates, 1)
-        self.assertEqual(manager.tasks, [])
-        self.assertEqual(manager._futures, [])
-        self.assertIsNone(manager.thread)
+        self.assertIsInstance(manager._tasks, deque)
+        self.assertIsInstance(manager._futures, deque)
+        self.assertIsNone(manager._workthread)
         self.assertIsInstance(manager._loop, asyncio.AbstractEventLoop)
         self.assertIsInstance(manager._executor, ThreadPoolExecutor)
         self.assertFalse(manager._continue)
         manager = TaskManager()
-        self.assertIsNone(manager._logger)
-        self.assertEqual(manager.name, f"{manager.__class__.__name__.lower()}_{str(id(manager))[-6:]}")
+        self.assertEqual(manager.name, f"{manager.__class__.__name__.lower()}{str(id(manager))[-6:]}")
         del manager
 
 
@@ -51,9 +51,9 @@ class TestTaskManager(unittest.TestCase):
         self.assertTrue(manager._loop.is_running())
         self.assertIsNotNone(manager._loop)
         self.assertIsNotNone(manager._executor)
-        self.assertIsNotNone(manager.thread)
-        self.assertIsInstance(manager.thread, threading.Thread)
-        self.assertTrue(manager.thread.is_alive())
+        self.assertIsNotNone(manager._workthread)
+        self.assertIsInstance(manager._workthread, threading.Thread)
+        self.assertTrue(manager._workthread.is_alive())
         self.assertTrue(manager.is_busy)
         self.assertTrue(task.is_running)
         del manager
@@ -70,7 +70,7 @@ class TestTaskManager(unittest.TestCase):
         manager.start()
         self.assertTrue(manager._continue)
         self.assertTrue(manager._loop.is_running())
-        self.assertTrue(manager.thread.is_alive())
+        self.assertTrue(manager._workthread.is_alive())
         self.assertTrue(manager.is_busy)
         self.assertTrue(task.is_running)
 
@@ -78,7 +78,7 @@ class TestTaskManager(unittest.TestCase):
         self.assertRaises(RuntimeError, manager.stop)
         self.assertFalse(manager._continue)
         self.assertFalse(manager._loop.is_running())
-        self.assertIsNone(manager.thread)
+        self.assertIsNone(manager._workthread)
         self.assertFalse(manager.is_busy)
         self.assertFalse(task.is_running)
         del manager
@@ -161,27 +161,6 @@ class TestTaskManager(unittest.TestCase):
         del manager
 
 
-    def test_clear_log_history(self):
-        manager = TaskManager(log_to=self.log_path)
-        manager.log("Hello World")
-        with open(self.log_path, "r") as f:
-            self.assertTrue("Hello World" in f.read())
-
-        manager.clear_log_history()
-        with open(self.log_path, "r") as f:
-            self.assertFalse("Hello World" in f.read())
-        del manager
-
-
-    def test_start_new_log(self):
-        manager = TaskManager(log_to=self.log_path)
-        self.assertEqual(manager._logger.filename, os.path.abspath(self.log_path))
-        manager.start_new_log("./tests/fixtures/logs2.log")
-        self.assertTrue(os.path.exists("./tests/fixtures/logs2.log"))
-        self.assertEqual(manager._logger.filename, os.path.abspath("./tests/fixtures/logs2.log"))
-        del manager
-
-
     def test_is_managing(self):
         manager = TaskManager()
         task = ScheduledTask(
@@ -198,7 +177,7 @@ class TestTaskManager(unittest.TestCase):
         manager = TaskManager()
         manager.start()
         manager.run_after(3, print_current_time)
-        self.assertTrue(manager.get_tasks("print_current_time") != [])
-        task = manager.get_tasks("print_current_time")[0]
-        self.assertFalse(task.is_running)
+        self.assertTrue(manager.get_tasks("run_print_current_time_after_3s") != [])
+        task = manager.get_tasks("run_print_current_time_after_3s")[0]
+        self.assertTrue(task.is_running)
         del manager

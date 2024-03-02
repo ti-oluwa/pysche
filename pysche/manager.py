@@ -71,7 +71,7 @@ class TaskManager:
     @property
     def has_started(self) -> bool:
         """Returns True if the task manager has started executing tasks"""
-        return self._continue and self._loop.is_running()
+        return self._continue is True and self._loop.is_running()
     
     @property
     def tasks(self):
@@ -102,6 +102,7 @@ class TaskManager:
     
     @property
     def status(self):
+        """Returns the status of the task manager - 'busy' or 'idle'"""
         return "busy" if self.is_busy else "idle"
 
     
@@ -139,7 +140,7 @@ class TaskManager:
         Adds the future to the list of futures handled by this manager
         """
         # Used `run_coroutine_threadsafe` to ensure that tasks(futures) are 
-        # run concurrently and in a thread-safe manner
+        # run concurrently and in a thread-safe manner once the loop starts running
         future = asyncio.run_coroutine_threadsafe(scheduledtask(), self._loop)
         future.name = scheduledtask.name
         future.id = scheduledtask.id
@@ -151,7 +152,7 @@ class TaskManager:
         """Returns a list of futures with the specified name"""
         matches = []
         for future in self._futures:
-            if future.get_name() == name:
+            if future.name == name:
                 matches.append(future)
         return matches
 
@@ -208,14 +209,16 @@ class TaskManager:
             raise RuntimeError(f"{self.name} has not started task execution yet.\n")
 
         self._continue = False # breaks outermost while loop in all ScheduleTasks
+
+        # Cancel all tasks which eventually cancels all futures before stopping loop
+        # This helps avoid the warning message that is thrown by the loop when it is stopped
         for task in self.tasks:
-            self._loop.call_soon_threadsafe(task.cancel)
+            task.cancel()
+
         self._loop.call_soon_threadsafe(self._loop.stop)
 
-        try:
-            self._workthread.join()
-        except:
-            pass
+        self._workthread.join()
+        del self._workthread
         self._workthread = None
         return None
     
@@ -227,8 +230,7 @@ class TaskManager:
         """
         if self.is_busy:
             self.stop() # stop all task execution, if the manager is busy with any
-        for task in self.tasks:
-            task.cancel() # Cancel all scheduled tasks
+
         self._loop.close()
         self._executor.shutdown(wait=True, cancel_futures=True)
         return None
@@ -487,5 +489,10 @@ class TaskManager:
         :param kwargs: Additional keyword arguments to pass to `logger.log`
         """
         level = getattr(logging, level.upper())
-        return self.logger.log(level, msg, **kwargs)
+        try:
+            return self.logger.log(level, msg, **kwargs)
+        except ImportError:
+            # Just to avoid the error message that is thrown by the rich library
+            # Anytime logging is interrupted by a system exit or keyboard interrupt
+            pass
     
