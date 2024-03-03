@@ -35,6 +35,9 @@ def parse_time(time: str, tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo) -> dateti
     :param time: The time string.
     :param tzinfo: The timezone info.
     """
+    if not isinstance(time, str):
+        raise TypeError(f"Expected time to be of type str not {type(time).__name__}")
+    
     split = time.split(":")
     if len(split) != 3:
         raise ValueError("Time must be in the format, 'HH:MM:SS'") 
@@ -167,3 +170,15 @@ class _RedirectStandardOutputStream:
     def __exit__(self, exc_type, exc_value, traceback):
         # Restore the original sys.stdout
         sys.stdout = self.og_stream
+
+
+def underscore_datetime(__dt: str, /):
+    """
+    Convert datetime string to underscore format.
+
+    :param __dt: The datetime string to convert
+    """
+    replaceables = (" ", ":", "-", ".", "/", "\\")
+    for char in replaceables:
+        __dt = __dt.replace(char, "_")
+    return __dt

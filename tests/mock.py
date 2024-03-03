@@ -23,5 +23,5 @@ def delay_print_hello_world(seconds: int):
     print("Hello World")
 
 
-def task_that_raises_exception():
+def raises_exception():
     raise Exception("This is an exception")

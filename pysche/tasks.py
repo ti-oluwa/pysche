@@ -26,7 +26,7 @@ class ScheduledTask:
     func = SetOnceDescriptor(validators=[asyncio.iscoroutinefunction])
     __slots__ = (
         "name", "args", "kwargs", "execute_then_wait", 
-        "stop_on_error", "max_retry", "_is_running", 
+        "stop_on_error", "max_retry", "_is_active", 
         "_is_paused", "_failed", "_errors", "_last_ran_at", 
         "__dict__", "__weakref__"
     )
@@ -85,7 +85,7 @@ class ScheduledTask:
         self.stop_on_error = stop_on_error
         self.max_retry = max_retry
         self.schedule = schedule
-        self._is_running = False
+        self._is_active = False
         self._is_paused = False
         self._failed = False
         self._errors = []
@@ -97,19 +97,16 @@ class ScheduledTask:
     
     
     @property
-    def is_running(self) -> bool:
+    def is_active(self) -> bool:
         """
-        Returns True if task has been scheduled for execution or has started been executed.
+        Returns True if task has been scheduled for execution and has started been executed.
         """
-        return self._is_running
+        return self._is_active
     
     @property
     def is_paused(self) -> bool:
         """
-        Returns True if further task execution is currently paused.
-
-        `task.is_paused` and `task.is_running` being True simultaneous is okay.
-        They are mutually inclusive.
+        Returns True if further task execution is currently suspended.
         """
         return self._is_paused
     
@@ -125,10 +122,8 @@ class ScheduledTask:
         future = self.manager._get_future(self.id)
         if future:
             return future.cancelled()
-        else:
-            # If the future cannot be found, and it had already started being executed, return True.
-            if self.is_running:
-                return True
+        # If the future cannot be found, and it probably has not been started
+        # Hence, its future has not bee created and the task has not been cancelled
         return False
     
     @property
@@ -147,8 +142,8 @@ class ScheduledTask:
             return "cancelled"
         return (
             "failed" if self.failed else "paused" 
-            if self.is_paused else "running" 
-            if self.is_running else "stopped" 
+            if self.is_paused else "active" 
+            if self.is_active else "stopped" 
             if self.last_ran_at else "pending"
         )
     
@@ -176,16 +171,16 @@ class ScheduledTask:
             if self.execute_then_wait is True:
                 # Execute the task first if execute_then_wait is True.
                 self.log("Task added for execution.\n")
-                self._is_running = True
+                self._is_active = True
                 self._last_ran_at = get_datetime_now(self.schedule.tz)
                 await self.func(*self.args, **self.kwargs)
 
             schedule_func = self.schedule.make_schedule_func_for_task(self)
             err_count = 0
             while self.manager._continue and not (self.failed or self.cancelled): # The prevents the task from running when the manager has not been started (or is stopped)
-                if not self.is_running:
+                if not self.is_active:
                     self.log("Task added for execution.\n")
-                    self._is_running = True
+                    self._is_active = True
 
                 try:
                     await schedule_func(*self.args, **self.kwargs)
@@ -201,7 +196,7 @@ class ScheduledTask:
 
                     if self.stop_on_error is True or err_count >= self.max_retry:
                         self._failed = True
-                        self._is_running = False
+                        self._is_active = False
                         self.log("Task execution failed.\n", level="CRITICAL")
                         break
 
@@ -209,9 +204,9 @@ class ScheduledTask:
                     continue
         finally:
             # If task exits loop, task has stopped executing
-            if self.is_running:
+            if self.is_active:
                 self.log("Task execution stopped.\n")
-                self._is_running = False
+                self._is_active = False
         return None
 
     
@@ -249,18 +244,19 @@ class ScheduledTask:
         """
         Start task execution. You cannot start a failed or cancelled task
 
-        The task will not start if it is already running, paused, failed or cancelled.
+        The task will not start if it is already active, paused, failed or cancelled.
         Also, the task will not start until its manager has been started.
         """
-        if not any((self.is_running, self.is_paused, self.failed, self.cancelled)):
-            # Task starts automatically if manager is already running 
+        if not any((self.is_active, self.is_paused, self.failed, self.cancelled)):
+            # Task starts automatically if manager has already started task execution 
             # else, it waits for the manager to start
             self.manager._make_future(self)
             if self.manager.has_started:
                 # wait for task to start running if manager has already started task execution
-                while not self.is_running:
+                while not self.is_active:
                     continue
-        return None
+            return None
+        raise RuntimeError(f"Cannot start '{self.name}'. '{self.name}' is {self.status}.")
 
 
     def rerun(self) -> None:
@@ -274,8 +270,8 @@ class ScheduledTask:
     
 
     def join(self) -> None:
-        """Wait for task to finish running before proceeding"""
-        while self.is_running:
+        """Wait for task to finish executing before proceeding"""
+        while self.is_active:
             try:
                 time.sleep(0.0001)
                 continue
@@ -285,7 +281,7 @@ class ScheduledTask:
     
 
     def pause(self) -> None:
-        """Pause task. Stops task from running, temporarily"""
+        """Pause task. Stops task execution, temporarily"""
         if self.is_paused:
             raise RuntimeError(f"Cannot pause '{self.name}'. '{self.name}' is already paused.")
         self._is_paused = True
@@ -391,7 +387,7 @@ class ScheduledTask:
         return self.manager.run_on(datetime, lambda: self.update(**kwargs), tz=tz, task_name=f"update_{self.name}_on_{datetime}")
 
     
-    def cancel(self, wait: bool = False) -> None:
+    def cancel(self, wait: bool = True) -> None:
         """
         Cancel task. Cancelling a task will invalidate task execution by the manager.
 
@@ -405,8 +401,8 @@ class ScheduledTask:
         
         task_future = self.manager._get_future(self.id)
         if task_future is None:
-            if self.is_running or self.last_ran_at:
-                # If task is running or has run before and a future cannot 
+            if self.is_active or self.last_ran_at:
+                # If task is being executed or has been executed before and a future cannot 
                 # be found for the task then `manager._futures` has been tampered with.
                 # Raise a runtime error for this
                 raise RuntimeError(
@@ -414,10 +410,7 @@ class ScheduledTask:
                 )
         else: 
             task_future.cancel()
-            self.manager._futures.remove(task_future)
-            del task_future
 
-        self.manager._tasks.remove(self)
         if wait is True:
             self.join()
         self.log("Task cancelled.\n")
