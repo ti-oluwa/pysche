@@ -4,14 +4,13 @@ import asyncio
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 import os
-import time
 import datetime
 
 from pysche.manager import TaskManager
 from pysche.schedules import RunAfterEvery
 from pysche.tasks import ScheduledTask
 from pysche.exceptions import UnregisteredTask
-from tests.mock import print_current_time, print_helloworld, raises_exception
+from tests.mock import print_current_time, print_helloworld, raise_exception
 
 
 class TestTaskManager(unittest.TestCase):
@@ -308,10 +307,15 @@ class TestTaskManager(unittest.TestCase):
     def test_get_failed_tasks(self):
         manager = TaskManager()
         manager.start()
-        task1 = manager.run_after(2, raises_exception)
+        task1 = manager.run_after(2, raise_exception)
         task2 = manager.run_after(2, print_helloworld)
         task1.join()
         self.assertTrue(len(manager.get_failed_tasks()) == 1)
         self.assertTrue(task1 in manager.get_failed_tasks())
         self.assertFalse(task2 in manager.get_failed_tasks())
         del manager
+
+
+
+if __name__ == "__main__":
+    unittest.main()

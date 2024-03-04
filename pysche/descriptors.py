@@ -1,22 +1,20 @@
 from __future__ import annotations
-from typing import Any, List, Callable, TypeVar
+from typing import Any, List, Callable, Type
 import inspect
 
 
 
-Klass = TypeVar("Klass", bound=object)
 NO_DEFAULT = object() # sentinel object to indicate that no default value was provided
-Validator = Callable[[Any], None]
 
 
 class AttributeDescriptor:
     """Implements a descriptor for an attribute of a class."""
     def __init__(
         self, 
-        attr_type: Klass = None, 
+        attr_type: Type[Any] = None, 
         *,
-        default: Klass = NO_DEFAULT,
-        validators: List[Validator] | None = None
+        default: Any = NO_DEFAULT,
+        validators: List[Callable[[Any], Any]] | None = None
     ) -> None:
         """
         Initialize the descriptor
@@ -34,7 +32,7 @@ class AttributeDescriptor:
         if validators and not isinstance(validators, list):
             raise TypeError('validators must be a list')
         
-        self.attr_type: Klass = attr_type
+        self.attr_type = attr_type
         self.validators = validators or []
         self.default = default
         for validator in self.validators:
@@ -49,7 +47,7 @@ class AttributeDescriptor:
         self.name = name
 
 
-    def __get__(self, instance, owner) -> SetOnceDescriptor | Klass:
+    def __get__(self, instance, owner) -> AttributeDescriptor | Any:
         """
         Get the property value
 
@@ -60,12 +58,11 @@ class AttributeDescriptor:
         if instance is None:
             return self
         try:
-            value: Klass = instance.__dict__[self.name]
+            return instance.__dict__[self.name]
         except KeyError:
             if self.default is NO_DEFAULT:
                 raise
-            value = self.default
-        return value
+            return self.default
 
 
     def __set__(self, instance, value) -> None:

@@ -14,7 +14,7 @@ from .manager import TaskManager
 from .bases import ScheduleType, Schedule
 from .utils import get_datetime_now
 from .descriptors import SetOnceDescriptor
-from .exceptions import TaskDuplicationError
+from .exceptions import TaskDuplicationError, TaskError, TaskExecutionError
 
 
 
@@ -165,7 +165,7 @@ class ScheduledTask:
     async def __call__(self) -> Coroutine[Any, Any, None]:
         """Returns a coroutine that will be run to execute this task"""
         if self.cancelled:
-            raise RuntimeError(f"{self.name} has already been cancelled. {self.name} cannot be called.")
+            raise TaskExecutionError(f"{self.name} has already been cancelled. {self.name} cannot be called.")
 
         try:
             if self.execute_then_wait is True:
@@ -223,6 +223,7 @@ class ScheduledTask:
             r = func(*args, **kwargs)
             self.log(f"Task execution completed in {time.time() - start_timestamp :.4f} seconds.\n")
             return r
+        
         return wrapper
 
 
@@ -256,13 +257,14 @@ class ScheduledTask:
                 while not self.is_active:
                     continue
             return None
-        raise RuntimeError(f"Cannot start '{self.name}'. '{self.name}' is {self.status}.")
+        raise TaskExecutionError(f"Cannot start '{self.name}'. '{self.name}' is {self.status}.")
 
 
     def rerun(self) -> None:
         """Re-run failed task"""
         if not self.failed:
-            raise RuntimeError(f"Cannot rerun '{self.name}'. '{self.name}' has not failed.")
+            raise TaskExecutionError(f"Cannot rerun '{self.name}'. '{self.name}' has not failed.")
+        
         self._failed = False
         self._is_paused = False
         self.start()
@@ -283,7 +285,14 @@ class ScheduledTask:
     def pause(self) -> None:
         """Pause task. Stops task execution, temporarily"""
         if self.is_paused:
-            raise RuntimeError(f"Cannot pause '{self.name}'. '{self.name}' is already paused.")
+            raise TaskExecutionError(f"Cannot pause '{self.name}'. '{self.name}' is already paused.")
+        elif self.cancelled:
+            raise TaskExecutionError(f"Cannot pause '{self.name}'. '{self.name}' has been cancelled.")
+        elif self.failed:
+            raise TaskExecutionError(f"Cannot pause '{self.name}'. '{self.name}' has failed.")
+        elif not self.is_active:
+            raise TaskExecutionError(f"Cannot pause '{self.name}'. '{self.name}' has not started yet.")
+        
         self._is_paused = True
         self.log("Task execution paused.\n")
         return None
@@ -292,6 +301,7 @@ class ScheduledTask:
     def resume(self) -> None:
         """Resume paused task"""
         if not self.is_paused:
+            # just ignore if task is not paused
             return
         self._is_paused = False
         self.log("Task execution resumed.\n")
@@ -405,7 +415,7 @@ class ScheduledTask:
                 # If task is being executed or has been executed before and a future cannot 
                 # be found for the task then `manager._futures` has been tampered with.
                 # Raise a runtime error for this
-                raise RuntimeError(
+                raise TaskError(
                     f"{self.__class__.__name__}: Cannot find future '{self.id}' in manager. '_tasks' is out of sync with '_futures'.\n"
                 )
         else: 

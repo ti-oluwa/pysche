@@ -95,7 +95,7 @@ class TaskManager:
     @property
     def is_occupied(self) -> bool:
         """
-        Returns True if the task manager is currently executing any active task (paused or not)
+        Returns True if the task manager is currently has any active task (paused or not)
         """
         # iterate over a copy of the tasks list, self.tasks[:], instead of the list itself to avoid
         # runtime error / race conditions that may occur when trying modify the task list while it is been
@@ -130,9 +130,12 @@ class TaskManager:
             try:
                 # Use in case the function writes to the standard output stream in the background
                 with _RedirectStandardOutputStream():
-                    return await self._loop.run_in_executor(self._executor, lambda: func(*args, **kwargs))
+                    # Ensure that any exception raised by the function is caught and re-raised in the main thread
+                    f = self._loop.run_in_executor(self._executor, lambda: func(*args, **kwargs))
+                    return await f
             except CancelledError as exc:
                 raise asyncio.CancelledError(exc)
+            
         return async_func
     
 
@@ -189,11 +192,8 @@ class TaskManager:
     def join(self) -> None:
         """
         Wait for this manager to finish executing all scheduled tasks.
-        This method blocks the current thread until all tasks are no longer running.
+        This method blocks the current thread until all tasks are no longer active/running.
         """
-        if not self.has_started:
-            raise RuntimeError(f"{self.name} has not started task execution yet. Cannot join.\n")
-        
         try:
             while self.is_occupied:
                 time.sleep(0.001)
@@ -225,30 +225,6 @@ class TaskManager:
         return None
     
 
-    def sleep(self) -> None:
-        """
-        Pause execution of all scheduled tasks making the manager idle.
-        """
-        if not self.has_started:
-            raise RuntimeError(f"{self.name} has not started task execution yet.\n")
-        
-        for task in self.tasks:
-            task.pause()
-        return None
-    
-
-    def wake(self) -> None:
-        """
-        Resume execution of all paused scheduled tasks, if any.
-        """
-        if not self.has_started:
-            raise RuntimeError(f"{self.name} has not started task execution yet.\n")
-        
-        for task in self.get_paused_tasks():
-            task.resume()
-        return None
-    
-
     def shutdown(self) -> None:
         """
         Cancel all tasks and clean up resources.
@@ -261,6 +237,8 @@ class TaskManager:
 
         self._loop.close()
         self._executor.shutdown(wait=True, cancel_futures=True)
+        del self._executor
+        del self._loop
         return None
 
 
@@ -315,14 +293,13 @@ class TaskManager:
         from .tasks import ScheduledTask
         # Wraps function such that the function runs once and then the task is cancelled
         @functools.wraps(func)
-        def _wrapper(*args, **kwargs):
-            try:
-                func(*args, **kwargs)
-            finally:
-                _wrapper.task.cancel()
+        def wrapped_func(*args, **kwargs) -> Any:
+            result = func(*args, **kwargs)
+            wrapped_func.task.cancel()
+            return result
         
         task = ScheduledTask(
-            func=_wrapper,
+            func=wrapped_func,
             schedule=RunAfterEvery(seconds=delay),
             manager=self,
             args=args,
@@ -332,7 +309,7 @@ class TaskManager:
             max_retry=0,
             start_immediately=False,
         )
-        _wrapper.task = task
+        wrapped_func.task = task
         task.start()
         return task
     
@@ -367,16 +344,14 @@ class TaskManager:
         
         from .schedules import RunAfterEvery
         from .tasks import ScheduledTask
-        # Wraps function such that the function runs once and then the task is cancelled
         @functools.wraps(func)
-        def _wrapper(*args, **kwargs):
-            try:
-                func(*args, **kwargs)
-            finally:
-                _wrapper.task.cancel()
+        def wrapped_func(*args, **kwargs) -> Any:
+            result = func(*args, **kwargs)
+            wrapped_func.task.cancel()
+            return result
         
         task = ScheduledTask(
-            func=_wrapper,
+            func=wrapped_func,
             schedule=RunAfterEvery(seconds=timedelta.total_seconds()),
             manager=self,
             args=args,
@@ -386,7 +361,7 @@ class TaskManager:
             max_retry=0,
             start_immediately=False,
         )
-        _wrapper.task = task
+        wrapped_func.task = task
         task.start()
         return task
     
@@ -415,16 +390,14 @@ class TaskManager:
         """
         from .schedules import RunAt
         from .tasks import ScheduledTask
-        # Wraps function such that the function runs once and then the task is cancelled
         @functools.wraps(func)
-        def _wrapper(*args, **kwargs):
-            try:
-                func(*args, **kwargs)
-            finally:
-                _wrapper.task.cancel()
+        def wrapped_func(*args, **kwargs) -> Any:
+            result = func(*args, **kwargs)
+            wrapped_func.task.cancel()
+            return result
         
         task = ScheduledTask(
-            func=_wrapper,
+            func=wrapped_func,
             schedule=RunAt(time=time, tz=tz),
             manager=self,
             args=args,
@@ -434,7 +407,7 @@ class TaskManager:
             max_retry=0,
             start_immediately=False,
         )
-        _wrapper.task = task
+        wrapped_func.task = task
         task.start()
         return task
 
@@ -475,78 +448,6 @@ class TaskManager:
         return self.run_on(datetime, self.stop, task_name=f"stop_{self.name}_on_{underscore_datetime(datetime)}")
     
 
-    def sleep_after(self, delay: int | float, /):
-        """
-        Creates a task that pauses the execution of all scheduled tasks after a specified delay in seconds
-
-        :param delay: The number of seconds to wait before pausing the execution of all tasks
-        :return: The created task
-        """
-        if not self.has_started:
-            raise RuntimeError(f"{self.name} has not started task execution yet.\n")
-        return self.run_after(delay, self.sleep, task_name=f"sleep_{self.name}_after_{delay}seconds")
-    
-
-    def sleep_at(self, time: str, /):
-        """
-        Creates a task that pauses the execution of all scheduled tasks at the specified time
-
-        :param time: The time to pause the execution of all tasks. Must be in the format 'HH:MM:SS'
-        :return: The created task
-        """
-        if not self.has_started:
-            raise RuntimeError(f"{self.name} has not started task execution yet.\n")
-        return self.run_at(time, self.sleep, task_name=f"sleep_{self.name}_at_{underscore_datetime(time)}")
-    
-
-    def sleep_on(self, datetime: str, /):
-        """
-        Creates a task that pauses the execution of all scheduled tasks at the specified datetime
-
-        :param datetime: The datetime to pause the execution of all tasks. Must be in the format 'YYY-MM-DD HH:MM:SS'
-        :return: The created task
-        """
-        if not self.has_started:
-            raise RuntimeError(f"{self.name} has not started task execution yet.\n")
-        return self.run_on(datetime, self.sleep, task_name=f"sleep_{self.name}_on_{underscore_datetime(datetime)}")
-
-
-    def wake_after(self, delay: int | float, /):
-        """
-        Creates a task that resumes the execution of all paused scheduled tasks after a specified delay in seconds
-
-        :param delay: The number of seconds to wait before resuming the execution of all paused tasks
-        :return: The created task
-        """
-        if not self.has_started:
-            raise RuntimeError(f"{self.name} has not started task execution yet.\n")
-        return self.run_after(delay, self.wake, task_name=f"wake_{self.name}_after_{delay}seconds")
-    
-
-    def wake_at(self, time: str, /):
-        """
-        Creates a task that resumes the execution of all paused scheduled tasks at the specified time
-
-        :param time: The time to resume the execution of all paused tasks. Must be in the format 'HH:MM:SS'
-        :return: The created task
-        """
-        if not self.has_started:
-            raise RuntimeError(f"{self.name} has not started task execution yet.\n")
-        return self.run_at(time, self.wake, task_name=f"wake_{self.name}_at_{underscore_datetime(time)}")
-    
-
-    def wake_on(self, datetime: str, /):
-        """
-        Creates a task that resumes the execution of all paused scheduled tasks at the specified datetime
-
-        :param datetime: The datetime to resume the execution of all paused tasks. Must be in the format 'YYY-MM-DD HH:MM:SS'
-        :return: The created task
-        """
-        if not self.has_started:
-            raise RuntimeError(f"{self.name} has not started task execution yet.\n")
-        return self.run_on(datetime, self.wake, task_name=f"wake_{self.name}_on_{underscore_datetime(datetime)}")
-
-    
     def cancel_task(self, name_or_id: str, /, *, wait: bool = True) -> None:
         """Cancel all tasks with the specified name or ID"""
         if not self.is_managing(name_or_id):
