@@ -1,20 +1,19 @@
-from __future__ import annotations
-from typing import Any, List, Callable, Type
-import inspect
+from typing import Any, List, Callable, Type, Generic, TypeVar, Optional
 
 
 
 NO_DEFAULT = object() # sentinel object to indicate that no default value was provided
+T = TypeVar("T")
 
 
-class AttributeDescriptor:
+class AttributeDescriptor(Generic[T]):
     """Implements a descriptor for an attribute of a class."""
     def __init__(
         self, 
-        attr_type: Type[Any] = None, 
+        attr_type: Optional[Type[T]] = None, 
         *,
         default: Any = NO_DEFAULT,
-        validators: List[Callable[[Any], Any]] | None = None
+        validators: Optional[List[Callable[[Any], Any]]] = None
     ) -> None:
         """
         Initialize the descriptor
@@ -27,8 +26,8 @@ class AttributeDescriptor:
         However the validator are also allowed to raise their own exceptions if the value is not valid. This is especially
         useful when the validation logic is complex or custom exception message is needed.
         """
-        if attr_type is not None and not inspect.isclass(attr_type):
-            raise TypeError('attr_type must be a class')
+        if attr_type is not None and not isinstance(attr_type, type):
+            raise TypeError('attr_type must be a type or None')
         if validators and not isinstance(validators, list):
             raise TypeError('validators must be a list')
         
@@ -47,7 +46,7 @@ class AttributeDescriptor:
         self.name = name
 
 
-    def __get__(self, instance, owner) -> AttributeDescriptor | Any:
+    def __get__(self, instance: Any , owner: Type[Any]) -> T:
         """
         Get the property value
 
@@ -65,7 +64,7 @@ class AttributeDescriptor:
             return self.default
 
 
-    def __set__(self, instance, value) -> None:
+    def __set__(self, instance: Any, value: T) -> None:
         """
         Set the attribute value on the instance.
 
@@ -94,7 +93,7 @@ class SetOnceDescriptor(AttributeDescriptor):
     """
     Descriptor that allows an attribute to be set to a 'not-None' value only once on an instance.
     """
-    def __set__(self, instance, value) -> None:
+    def __set__(self, instance, value: T) -> None:
         """
         Set the attribute value on the instance.
         The attributes value can only be set to a not-None value once,

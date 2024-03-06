@@ -1,5 +1,5 @@
 import datetime
-from typing import Any
+from typing import Any, Optional
 
 from .manager import TaskManager
 from .bases import Schedule
@@ -21,7 +21,7 @@ class RunAt(Schedule):
     timedelta = AttributeDescriptor(attr_type=datetime.timedelta, default=None)
     time = SetOnceDescriptor(attr_type=datetime.time)
 
-    def __init__(self, time: str = None, **kwargs) -> None:
+    def __init__(self, time: str, **kwargs) -> None:
         """
         Create a schedule that will be due at the specified time, everyday.
 
@@ -277,7 +277,7 @@ class TimePeriodSchedule(From__ToMixin, AtMixin, AfterEveryMixin, Schedule):
         self, 
         *, 
         manager: TaskManager, 
-        name: str = None, 
+        name: Optional[str] = None, 
         execute_then_wait: bool = False, 
         stop_on_error: bool = False, 
         max_retry: int = 0, 

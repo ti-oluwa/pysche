@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Callable, Coroutine, Any, List, TypeVar
+from typing import Callable, Coroutine, Any, List, TypeVar, Optional
 import datetime
 import asyncio
 import functools
@@ -23,7 +23,7 @@ class AbstractBaseSchedule(ABC):
         self, 
         *, 
         manager: TaskManager,
-        name: str = None,
+        name: Optional[str] = None,
         execute_then_wait: bool = False,
         stop_on_error: bool = False,
         max_retry: int = 0,
@@ -142,7 +142,9 @@ class Schedule(AbstractBaseSchedule):
             
             if await schedule_is_due() is True:
                 scheduledtask._last_ran_at = get_datetime_now(self.tz)
-                await scheduledtask.func(*args, **kwargs)
+                r = await scheduledtask.func(*args, **kwargs)
+                if scheduledtask.callback is not None:
+                    await scheduledtask.callback(r)
             return
 
         schedule_func.__name__ = scheduledtask.name

@@ -13,6 +13,7 @@ from pysche.exceptions import UnregisteredTask
 from tests.mock import print_current_time, print_helloworld, raise_exception
 
 
+
 class TestTaskManager(unittest.TestCase):
 
     def setUp(self) -> None:
@@ -191,8 +192,8 @@ class TestTaskManager(unittest.TestCase):
         with self.assertRaises(TypeError):
             manager.run_on(3, print_current_time)
 
-        now_plus_4_seconds = (datetime.datetime.now() + datetime.timedelta(seconds=4)).strftime("%Y-%m-%d %H:%M:%S")
-        task = manager.run_on(now_plus_4_seconds, print_current_time, task_name="run_4s_from_now_dt")
+        now_plus_4_seconds_dt = (datetime.datetime.now() + datetime.timedelta(seconds=4)).strftime("%Y-%m-%d %H:%M:%S")
+        task = manager.run_on(now_plus_4_seconds_dt, print_current_time, task_name="run_4s_from_now_dt")
         self.assertTrue(task.name == "run_4s_from_now_dt")
         self.assertTrue(manager.get_tasks("run_4s_from_now_dt") != [])
         self.assertTrue(task == manager.get_tasks("run_4s_from_now_dt")[0])
@@ -209,8 +210,8 @@ class TestTaskManager(unittest.TestCase):
         with self.assertRaises(TypeError):
             manager.run_at(3, print_helloworld)
 
-        now_plus_4_seconds = (datetime.datetime.now() + datetime.timedelta(seconds=4)).strftime("%H:%M:%S")
-        task = manager.run_at(now_plus_4_seconds, print_helloworld, task_name="run_4s_from_now_time")
+        now_plus_4_seconds_time = (datetime.datetime.now() + datetime.timedelta(seconds=4)).strftime("%H:%M:%S")
+        task = manager.run_at(now_plus_4_seconds_time, print_helloworld, task_name="run_4s_from_now_time")
         self.assertTrue(task.name == "run_4s_from_now_time")
         self.assertTrue(manager.get_tasks("run_4s_from_now_time") != [])
         self.assertTrue(task == manager.get_tasks("run_4s_from_now_time")[0])

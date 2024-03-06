@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any
+from typing import Any, Optional
 import datetime
 import sys
 try:
@@ -94,7 +94,7 @@ class MinMaxValidator:
     """
     Validates that value is not less than minimum value and not greater than maximum value
     """
-    def __init__(self, min_value: int=None, max_value: int=None):
+    def __init__(self, min_value: Optional[int] = None, max_value: Optional[int] = None):
         """
         Instantiate validator
 

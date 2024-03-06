@@ -1,3 +1,4 @@
+from typing import Optional
 import logging
 from logging.handlers import RotatingFileHandler
 import simple_file_handler as sfh
@@ -8,7 +9,7 @@ from rich.logging import RichHandler
 
 def get_logger(
         name: str, 
-        logfile_path: str = None,
+        logfile_path: Optional[str] = None,
         to_console: bool = True, 
         base_level: str = "DEBUG",
         format: str = "%(asctime)s  %(levelname)s  %(message)s",

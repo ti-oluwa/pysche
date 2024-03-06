@@ -2,7 +2,7 @@ from __future__ import annotations
 import uuid
 import asyncio
 import time
-from typing import Callable, Any, Coroutine, Sequence, Mapping, List
+from typing import Callable, Any, Coroutine, List, Optional, Tuple, Dict
 import functools
 import datetime
 try:
@@ -13,23 +13,29 @@ except ImportError:
 from .manager import TaskManager
 from .bases import ScheduleType, Schedule
 from .utils import get_datetime_now
-from .descriptors import SetOnceDescriptor
-from .exceptions import TaskDuplicationError, TaskError, TaskExecutionError
+from .descriptors import SetOnceDescriptor, AttributeDescriptor
+from .exceptions import TaskCancelled, TaskDuplicationError, TaskError, TaskExecutionError
 
 
 
 class ScheduledTask:
     """Task that runs a function on a specified schedule"""
     id = SetOnceDescriptor(attr_type=str)
+    name = AttributeDescriptor(attr_type=str)
     manager = SetOnceDescriptor(attr_type=TaskManager)
     schedule = SetOnceDescriptor(attr_type=Schedule)
     func = SetOnceDescriptor(validators=[asyncio.iscoroutinefunction])
-    __slots__ = (
-        "name", "args", "kwargs", "execute_then_wait", 
-        "stop_on_error", "max_retry", "_is_active", 
-        "_is_paused", "_failed", "_errors", "_last_ran_at", 
-        "__dict__", "__weakref__"
-    )
+    args = AttributeDescriptor(attr_type=tuple, default=())
+    kwargs = AttributeDescriptor(attr_type=dict, default={})
+    callback = SetOnceDescriptor(validators=[asyncio.iscoroutinefunction], default=None)
+    execute_then_wait = AttributeDescriptor(attr_type=bool, default=False)
+    stop_on_error = AttributeDescriptor(attr_type=bool, default=False)
+    max_retry = AttributeDescriptor(attr_type=int, default=0)
+    _is_active = AttributeDescriptor(attr_type=bool, default=False)
+    _is_paused = AttributeDescriptor(attr_type=bool, default=False)
+    _failed = AttributeDescriptor(attr_type=bool, default=False)
+    _errors = AttributeDescriptor(attr_type=list, default=[])
+    _last_ran_at = AttributeDescriptor(attr_type=datetime.datetime, default=None)
 
     def __init__(
         self,
@@ -37,9 +43,10 @@ class ScheduledTask:
         schedule: ScheduleType,
         manager: TaskManager,
         *,
-        args: Sequence[Any] = (),
-        kwargs: Mapping[str, Any] = {},
-        name: str = None,
+        args: Optional[Tuple[Any]] = None,
+        kwargs: Optional[Dict[str, Any]] = None,
+        name: Optional[str] = None,
+        callback: Optional[Callable] = None,
         execute_then_wait: bool = False,
         stop_on_error: bool = False,
         max_retry: int = 0,
@@ -54,6 +61,7 @@ class ScheduledTask:
         :param args: The arguments to be passed to the scheduled function.
         :param kwargs: The keyword arguments to be passed to the scheduled function.
         :param name: The name of the task.
+        :param callback: A callback function to be called after each time the task is executed. The result of the task will be passed to the callback.
         :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
         Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
         without retry, irrespective of `stop_on_error` or `max_retry`
@@ -63,9 +71,6 @@ class ScheduledTask:
         This is only applicable if the manager is already running.
         Otherwise, task execution will start when the manager starts executing tasks.
         """
-        if not callable(func):
-            raise TypeError("Invalid type for 'func'. Should be a callable")
-        
         self.id = uuid.uuid4().hex[-6:]
         self.manager = manager
         func = self._wrap_func_for_time_stats(func)
@@ -79,17 +84,16 @@ class ScheduledTask:
                     f"'{self.manager.name}' can only manage {self.manager.max_duplicates} duplicates of '{self.name}'."
                 )
         
-        self.args = args
-        self.kwargs = kwargs
+        if args is not None:
+            self.args = args
+        if kwargs is not None:
+            self.kwargs = kwargs
+        if callback is not None:
+            self.callback = self.manager._make_asyncable(callback)
         self.execute_then_wait = execute_then_wait
         self.stop_on_error = stop_on_error
         self.max_retry = max_retry
         self.schedule = schedule
-        self._is_active = False
-        self._is_paused = False
-        self._failed = False
-        self._errors = []
-        self._last_ran_at: datetime.datetime = None
         self.manager._tasks.append(self)
         if start_immediately:
             self.start()
@@ -189,7 +193,9 @@ class ScheduledTask:
                     asyncio.CancelledError, RuntimeError
                 ):
                     break
-                
+                except TaskCancelled:
+                    self.cancel()
+                    break
                 except Exception as exc:
                     self._errors.append(exc)
                     self.log(f"{exc}\n", level="ERROR", exception=True)
@@ -459,12 +465,13 @@ class ScheduledTask:
         return self.manager.run_on(datetime, self.cancel, tz=tz, task_name=f"cancel_{self.name}_on_{datetime}")
 
 
+
     
 def scheduledtask(
     schedule: ScheduleType,
     manager: TaskManager,
     *,
-    name: str = None,
+    name: Optional[str] = None,
     execute_then_wait: bool = False,
     stop_on_error: bool = False,
     max_retry: int = 0,
