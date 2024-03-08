@@ -14,12 +14,12 @@ class TaskDuplicationError(TaskError):
     pass
 
 
-class UnregisteredTask(Exception):
+class UnregisteredTask(TaskError):
     """Raised when an action is performed on a task by a manager that it was not registered with."""
     pass
 
 
-class TaskCancelled(Exception):
+class TaskCancelled(TaskError):
     """
     Raised to request that a task be cancelled.
 

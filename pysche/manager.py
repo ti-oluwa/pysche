@@ -10,7 +10,10 @@ import functools
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 
 
-from .utils import _RedirectStandardOutputStream, parse_datetime, get_datetime_now, underscore_datetime
+from .utils import (
+    _RedirectStandardOutputStream, parse_datetime, 
+    get_datetime_now, underscore_datetime
+)
 from .exceptions import UnregisteredTask
 from .logging import get_logger
 
@@ -60,12 +63,16 @@ class TaskManager:
     
     
     def __repr__(self) -> str:
-        return f"<{self.__class__.__name__} {self.status} name='{self.name}' tasks={self.tasks}>"
+        return f"<{self.__class__.__name__} '{self.status}' name='{self.name}' task_count={len(self.tasks)}>"
     
     
     def __del__(self) -> None:
         self.shutdown()
         return None
+    
+
+    def __hash__(self) -> int:
+        return hash(id(self))
 
 
     @property
@@ -250,13 +257,13 @@ class TaskManager:
         return False
     
 
-    def get_tasks(self, name: str):
-        """Returns a list of tasks with the specified name"""
+    def get_tasks(self, name_or_tag: str, /):
+        """Returns a list of tasks with the specified name or tags"""
         from .tasks import ScheduledTask
         matches: List[ScheduledTask] = []
 
         for task in self.tasks:
-            if task.name == name:
+            if task.name == name_or_tag or name_or_tag in task.tags:
                 matches.append(task)
         return matches
     

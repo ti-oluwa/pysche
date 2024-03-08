@@ -1,18 +1,22 @@
 from typing import Any, List, Callable, Type, Generic, TypeVar, Optional
 
 
+class null:
+    """Sentinel object to indicate that no value was provided."""
+    pass
 
-NO_DEFAULT = object() # sentinel object to indicate that no default value was provided
+NULL = null()
 T = TypeVar("T")
+D = TypeVar('D')
 
 
-class AttributeDescriptor(Generic[T]):
+class AttributeDescriptor(Generic[T, D]):
     """Implements a descriptor for an attribute of a class."""
     def __init__(
         self, 
         attr_type: Optional[Type[T]] = None, 
         *,
-        default: Any = NO_DEFAULT,
+        default: D = NULL,
         validators: Optional[List[Callable[[Any], Any]]] = None
     ) -> None:
         """
@@ -46,7 +50,7 @@ class AttributeDescriptor(Generic[T]):
         self.name = name
 
 
-    def __get__(self, instance: Any , owner: Type[Any]) -> T:
+    def __get__(self, instance: Any , owner: Type[Any]) -> T | D:
         """
         Get the property value
 
@@ -59,7 +63,7 @@ class AttributeDescriptor(Generic[T]):
         try:
             return instance.__dict__[self.name]
         except KeyError:
-            if self.default is NO_DEFAULT:
+            if isinstance(self.default, null):
                 raise
             return self.default
 
@@ -89,11 +93,11 @@ class AttributeDescriptor(Generic[T]):
 
 
 
-class SetOnceDescriptor(AttributeDescriptor):
+class SetOnceDescriptor(AttributeDescriptor[T, D]):
     """
     Descriptor that allows an attribute to be set to a 'not-None' value only once on an instance.
     """
-    def __set__(self, instance, value: T) -> None:
+    def __set__(self, instance: Any, value: T) -> None:
         """
         Set the attribute value on the instance.
         The attributes value can only be set to a not-None value once,

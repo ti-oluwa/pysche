@@ -24,6 +24,7 @@ class AbstractBaseSchedule(ABC):
         *, 
         manager: TaskManager,
         name: Optional[str] = None,
+        tags: Optional[List[str]] = None,
         execute_then_wait: bool = False,
         stop_on_error: bool = False,
         max_retry: int = 0,
@@ -34,6 +35,7 @@ class AbstractBaseSchedule(ABC):
 
         :param manager: The manager to execute the task.
         :param name: The name of the task. If not specified, the name of the function will be used.
+        :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
         :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
         Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
         without retry, irrespective of `stop_on_error` or `max_retry`
@@ -55,15 +57,22 @@ class AbstractBaseSchedule(ABC):
                     args=args, 
                     kwargs=kwargs,
                     name=name,
+                    tags=tags,
                     execute_then_wait=execute_then_wait,
                     stop_on_error=stop_on_error,
                     max_retry=max_retry,
                     start_immediately=start_immediately,
                 )
+            
             wrapper.__name__ = name or func.__name__
             return wrapper
         
         return decorator
+    
+
+    def __hash__(self) -> int:
+        return hash(self.as_string())
+
 
     @abstractmethod
     def is_due(self) -> bool:
@@ -84,6 +93,10 @@ class AbstractBaseSchedule(ABC):
         """Returns a list of all previous schedules this schedule is chained to."""
         pass
 
+    @abstractmethod
+    def as_string(self) -> str:
+        """Returns a string representation of the schedule object."""
+        pass
 
 
 
@@ -98,9 +111,9 @@ class Schedule(AbstractBaseSchedule):
 
     A schedule clause must always end with a schedule that has a timedelta value.
     """
-    parent = SetOnceDescriptor(attr_type=AbstractBaseSchedule)
-    tz = SetOnceDescriptor(attr_type=zoneinfo.ZoneInfo)
-    timedelta = SetOnceDescriptor(attr_type=datetime.timedelta, default=None)
+    parent = SetOnceDescriptor(AbstractBaseSchedule)
+    tz = SetOnceDescriptor(zoneinfo.ZoneInfo)
+    timedelta = SetOnceDescriptor(datetime.timedelta)
 
     def __init__(self, **kwargs):
         """
@@ -141,10 +154,8 @@ class Schedule(AbstractBaseSchedule):
                 continue
             
             if await schedule_is_due() is True:
-                scheduledtask._last_ran_at = get_datetime_now(self.tz)
-                r = await scheduledtask.func(*args, **kwargs)
-                if scheduledtask.callback is not None:
-                    await scheduledtask.callback(r)
+                scheduledtask._last_executed_at = get_datetime_now(self.tz)
+                await scheduledtask.func(*args, **kwargs)
             return
 
         schedule_func.__name__ = scheduledtask.name
@@ -171,20 +182,26 @@ class Schedule(AbstractBaseSchedule):
         ancestors.reverse()
         return ancestors
     
+    
+    def as_string(self) -> str:
+        attrs = []
+        for k, v in self.__dict__.items():
+            if k != "parent":
+                attrs.append(f"{k}={v}")
+        return f"{self.__class__.__name__.lower()}({', '.join(attrs)})"
+
 
     def __repr__(self) -> str:
         """Returns a representation of the schedule."""
-        return f"{self.__class__.__name__}({', '.join([f'{k}={v}' for k, v in self.__dict__.items() if k != 'parent'])})"
-    
-
-    def __str__(self) -> str:
-        """Returns a string representation of the schedule."""
         if self.parent:
             # If the schedule has a parent(s) return the representation of the parent(s) and the schedule
             # joined together in the same order as they are chained.
-            return f"{'.'.join([ repr(ancestor) for ancestor in self.get_ancestors() ])}.{repr(self)}"
+            ancestors_representations = [ repr(ancestor) for ancestor in self.get_ancestors() ]
+            return f"{'.'.join(ancestors_representations)}.{self.as_string()}"
+        
         # Just return the representation of the schedule.
-        return repr(self)
+        return self.as_string()
+
 
 
 # Type variable for Schedule and its subclasses

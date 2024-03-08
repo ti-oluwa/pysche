@@ -172,13 +172,24 @@ class _RedirectStandardOutputStream:
         sys.stdout = self.og_stream
 
 
+
+def underscore_string(__s: str, /, replaceables: tuple[str, ...] = None) -> str:
+    """
+    Convert string to underscore format.
+
+    :param __s: The string to underscore
+    """
+    replaceables = replaceables or (" ", "-", ".", "/", "\\")
+    for char in replaceables:
+        __s = __s.replace(char, "_")
+    return __s
+
+
 def underscore_datetime(__dt: str, /):
     """
     Convert datetime string to underscore format.
 
-    :param __dt: The datetime string to convert
+    :param __dt: The datetime string to underscore
     """
     replaceables = (" ", ":", "-", ".", "/", "\\")
-    for char in replaceables:
-        __dt = __dt.replace(char, "_")
-    return __dt
+    return underscore_string(__dt, replaceables)

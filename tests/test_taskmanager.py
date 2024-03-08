@@ -134,10 +134,12 @@ class TestTaskManager(unittest.TestCase):
             schedule=RunAfterEvery(seconds=10),
             manager=manager
         )
+        task.add_tag("test-tag")
         self.assertIsInstance(manager.get_tasks(task.name), list)
         self.assertTrue(manager.get_tasks(task.name) != [])
         self.assertTrue(manager.get_tasks("fdghjk") == [])
         self.assertTrue(manager.get_tasks(task.name)[0].id == task.id)
+        self.assertTrue(manager.get_tasks("test-tag")[0] == task)
         del manager
 
 
