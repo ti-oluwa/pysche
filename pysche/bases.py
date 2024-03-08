@@ -31,10 +31,10 @@ class AbstractBaseSchedule(ABC):
         start_immediately: bool = True
     ):
         """
-        Creates a function that will run on this schedule and will be executed by the specified manager.
+        Function decorator. Decorated function will run on this schedule and will be executed by the specified manager.
 
         :param manager: The manager to execute the task.
-        :param name: The name of the task. If not specified, the name of the function will be used.
+        :param name: The preferred name for the task. If not specified, the name of the function will be used.
         :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
         :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
         Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
@@ -69,10 +69,6 @@ class AbstractBaseSchedule(ABC):
         
         return decorator
     
-
-    def __hash__(self) -> int:
-        return hash(self.as_string())
-
 
     @abstractmethod
     def is_due(self) -> bool:
@@ -201,6 +197,17 @@ class Schedule(AbstractBaseSchedule):
         
         # Just return the representation of the schedule.
         return self.as_string()
+    
+
+    def __hash__(self) -> int:
+        return hash(repr(self))
+    
+
+    def __eq__(self, other: ScheduleType) -> bool:
+        if not isinstance(other, Schedule):
+            return False
+        return repr(self) == repr(other)
+
 
 
 

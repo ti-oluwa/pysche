@@ -1,10 +1,11 @@
+from __future__ import annotations
 from collections.abc import Coroutine
 import datetime
 import logging
 from collections import deque
 import threading
 import time
-from typing import Any, Callable, Dict, Sequence, List, Mapping
+from typing import Any, Callable, Dict, Sequence, List, Mapping, Optional
 import asyncio
 import functools
 from concurrent.futures import CancelledError, ThreadPoolExecutor
@@ -28,7 +29,7 @@ class TaskManager:
         "_workthread", "_executor", "max_duplicates", "logger"
     )
 
-    def __init__(self, name: str = None, max_duplicates: int = 1, log_to: str = None):
+    def __init__(self, name: str = None, max_duplicates: int = -1, log_to: str = None):
         """
         Creates a new task manager.
 
@@ -73,6 +74,12 @@ class TaskManager:
 
     def __hash__(self) -> int:
         return hash(id(self))
+    
+    
+    def __eq__(self, other: TaskManager) -> bool:
+        if not isinstance(other, TaskManager):
+            return False
+        return hash(self) == hash(other)
 
 
     @property
@@ -516,3 +523,44 @@ class TaskManager:
             # Anytime logging is interrupted by a system exit or keyboard interrupt
             pass
     
+    
+    def newtask(
+        self,
+        schedule,
+        *,
+        name: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        execute_then_wait: bool = False,
+        stop_on_error: bool = False,
+        max_retry: int = 0,
+        start_immediately: bool = True,
+    ):
+        """
+        Function decorator. The decorated function returns a new scheduled task when called.
+        The returned task is managed by this manager and is executed on the specified schedule.
+
+        :param schedule: The schedule to run the task on.
+        :param name: The preferred name for this task. If not specified, the name of the function will be used.
+        :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
+        :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
+        Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
+        without retry, irrespective of `stop_on_error` or `max_retry`
+        :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
+        :param max_retry: The maximum number of times the task will be retried after an error is encountered.
+        :param start_immediately: If True, the task will start immediately after creation. 
+        This is only applicable if the manager is already running.
+        Otherwise, task execution will start when the manager starts executing tasks.
+        """
+        from .tasks import make_task_decorator_for_manager
+
+        task_decorator_for_manager = make_task_decorator_for_manager(self)
+        func_decorator = task_decorator_for_manager(
+            schedule,
+            name=name,
+            tags=tags,
+            execute_then_wait=execute_then_wait,
+            stop_on_error=stop_on_error,
+            max_retry=max_retry,
+            start_immediately=start_immediately
+        )
+        return func_decorator

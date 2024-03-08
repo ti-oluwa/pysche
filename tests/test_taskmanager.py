@@ -62,6 +62,15 @@ class TestTaskManager(unittest.TestCase):
         del manager
 
 
+    def test_equality(self):
+        manager1 = TaskManager()
+        manager2 = TaskManager()
+        self.assertFalse(manager1 == manager2)
+        self.assertTrue(manager1 == manager1)
+        self.assertTrue(manager2 == manager2)
+        del manager1, manager2
+    
+
     def test_stop(self):
         manager = TaskManager()
         task = ScheduledTask(
@@ -316,6 +325,17 @@ class TestTaskManager(unittest.TestCase):
         self.assertTrue(len(manager.get_failed_tasks()) == 1)
         self.assertTrue(task1 in manager.get_failed_tasks())
         self.assertFalse(task2 in manager.get_failed_tasks())
+        del manager
+
+
+    def test_newtask(self):
+        manager = TaskManager()
+        manager.start()
+        func = manager.newtask(RunAfterEvery(seconds=3))(raise_exception)
+        task = func()
+        self.assertTrue(task.is_active)
+        task.join()
+        self.assertFalse(task.is_active)
         del manager
 
 

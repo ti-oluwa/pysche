@@ -57,11 +57,11 @@ class ScheduledTask:
         Create a new scheduled task.
 
         :param func: The function to be scheduled.
-        :param schedule: The schedule for the task.
+        :param schedule: The schedule to run the task on.
         :param manager: The manager to execute the task.
         :param args: The arguments to be passed to the scheduled function.
         :param kwargs: The keyword arguments to be passed to the scheduled function.
-        :param name: The name of the task.
+        :param name: The preferred name for the task. If not specified, the name of the function will be used.
         :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
         :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
         Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
@@ -107,14 +107,14 @@ class ScheduledTask:
         """
         Returns True if task has been scheduled for execution and has started been executed.
         """
-        return self._is_active
+        return self._is_active is True and self.cancelled is False
     
     @property
     def is_paused(self) -> bool:
         """
-        Returns True if further task execution is currently suspended.
+        Returns True if further execution of an active task is currently suspended.
         """
-        return self._is_paused
+        return self._is_paused and self.is_active
     
     @property
     def failed(self) -> bool:
@@ -123,7 +123,7 @@ class ScheduledTask:
     
     @property
     def cancelled(self) -> bool:
-        """Returns True if the task execution has been cancelled"""
+        """Returns True if the task execution has been cancelled and is no longer active"""
         # Check if the future handling this task's coroutine has been cancelled
         future = self.manager._get_future(self.id)
         if future:
@@ -171,6 +171,13 @@ class ScheduledTask:
         """
         if tag not in self.tags:
             self.tags = [*self.tags, tag]
+        return None
+    
+
+    def remove_tag(self, tag: str, /):
+        """Remove a tag from the task"""
+        if tag in self.tags:
+            self.tags.remove(tag)
         return None
     
 
@@ -227,7 +234,8 @@ class ScheduledTask:
                         self._is_active = False
                         self.log("Task execution failed.\n", level="CRITICAL")
                         break
-
+                    
+                    self.log(f"Retrying task execution. Retry count: {err_count + 1}\n")
                     err_count += 1
                     continue
         finally:
@@ -246,6 +254,12 @@ class ScheduledTask:
 
     def __hash__(self) -> int:
         return hash(self.id)
+    
+
+    def __eq__(self, other: ScheduledTask) -> bool:
+        if not isinstance(other, self.__class__):
+            return False
+        return self.id == other.id
     
 
     def __del__(self) -> None:
@@ -274,29 +288,19 @@ class ScheduledTask:
         The task will not start if it is already active, paused, failed or cancelled.
         Also, the task will not start until its manager has been started.
         """
-        if not any((self.is_active, self.is_paused, self.failed, self.cancelled)):
-            # Task starts automatically if manager has already started task execution 
-            # else, it waits for the manager to start
-            self.manager._make_future(self)
-            if self.manager.has_started:
-                # wait for task to start running if manager has already started task execution
-                while not self.is_active:
-                    continue
-            self.started_at = get_datetime_now(self.schedule.tz)
-            return None
-        raise TaskExecutionError(f"Cannot start '{self.name}'. '{self.name}' is {self.status}.")
-
-
-    def rerun(self) -> None:
-        """Re-run failed task"""
-        if not self.failed:
-            raise TaskExecutionError(f"Cannot rerun '{self.name}'. '{self.name}' has not failed.")
+        if any((self.is_active, self.is_paused, self.failed, self.cancelled)):
+            raise TaskExecutionError(f"Cannot start '{self.name}'. '{self.name}' is {self.status}.")
         
-        self._failed = False
-        self._is_paused = False
-        self.start()
+        # Task starts automatically if manager has already started task execution 
+        # else, it waits for the manager to start
+        self.manager._make_future(self)
+        if self.manager.has_started:
+            # wait for task to start running if manager has already started task execution
+            while not self.is_active:
+                continue
+        self.started_at = get_datetime_now(self.schedule.tz)
         return None
-    
+        
 
     def join(self) -> None:
         """Wait for task to finish executing before proceeding"""
@@ -464,13 +468,12 @@ def task(
     start_immediately: bool = True,
 ) -> Callable[[Callable], Callable[..., ScheduledTask]]:
     """
-    Decorator for creating a scheduled task.
+    Function decorator. Decorated function will return a new scheduled task when called.
+    The returned task will be managed by the specified manager and will be executed according to the specified schedule.
 
-    Calling the decorated function will create and return a new scheduled task.
-
-    :param schedule: The schedule for the task.
+    :param schedule: The schedule to run the task on.
     :param manager: The manager to execute the task.
-    :param name: The name of the task.
+    :param name: The preferred name for the task. If not specified, the name of the function will be used.
     :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
     :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
     Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
@@ -481,7 +484,7 @@ def task(
     This is only applicable if the manager is already running.
     Otherwise, task execution will start when the manager starts executing tasks.
     """
-    decorator = schedule(
+    func_decorator = schedule(
         manager=manager,
         name=name,
         tags=tags,
@@ -490,11 +493,11 @@ def task(
         max_retry=max_retry,
         start_immediately=start_immediately,
     )
-    return decorator
+    return func_decorator
 
 
 
-def make_task_decorator(manager: TaskManager, /) -> Callable[..., Callable[[Callable], Callable[..., ScheduledTask]]]:
+def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Callable[[Callable], Callable[..., ScheduledTask]]]:
     """
     Convenience function for creating a task decorator for a given manager. This is useful when you want to create multiple
     tasks that are all managed by the same manager.
@@ -519,7 +522,7 @@ def make_task_decorator(manager: TaskManager, /) -> Callable[..., Callable[[Call
         pass
     ```
     """
-    decorator = functools.partial(task, manager=manager)
+    task_decorator_for_manager = functools.partial(task, manager=manager)
 
     @functools.wraps(task)
     def decorator_wrapper(
@@ -532,24 +535,7 @@ def make_task_decorator(manager: TaskManager, /) -> Callable[..., Callable[[Call
         max_retry: int = 0,
         start_immediately: bool = True,
     ) -> Callable[[Callable], ScheduledTask]:
-        """
-        Decorator for creating a scheduled task.
-
-        Calling the decorated function will create and return a new scheduled task.
-
-        :param schedule: The schedule for the task.
-        :param name: The name of the task.
-        :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
-        :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
-        Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
-        without retry, irrespective of `stop_on_error` or `max_retry`
-        :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
-        :param max_retry: The maximum number of times the task will be retried after an error is encountered.
-        :param start_immediately: If True, the task will start immediately after creation. 
-        This is only applicable if the manager is already running.
-        Otherwise, task execution will start when the manager starts executing tasks.
-        """
-        return decorator(
+        return task_decorator_for_manager(
             schedule,
             name=name,
             tags=tags,
