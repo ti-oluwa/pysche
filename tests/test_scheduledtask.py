@@ -1,10 +1,11 @@
 import asyncio
+import datetime
 import unittest
 
 from pysche.schedules import RunAfterEvery
 from pysche.tasks import ScheduledTask
 from pysche.manager import TaskManager
-from pysche.exceptions import TaskExecutionError, TaskError
+from pysche.exceptions import TaskExecutionError
 from tests.mock import count_to_ten, raise_exception, print_helloworld
 
 
@@ -226,6 +227,125 @@ class TestScheduledTask(unittest.TestCase):
         task.cancel()
         self.assertFalse(task.is_active)
         self.assertTrue(task.cancelled)
+
+
+    def test_pause_after(self):
+        task = ScheduledTask(
+            count_to_ten,
+            schedule=RunAfterEvery(seconds=1),
+            manager=self.manager,
+            start_immediately=True
+        )
+        self.assertFalse(task.is_paused)
+        pause_task = task.pause_after(2)
+        pause_task.join()
+        self.assertTrue(task.is_paused)
+        del task
+
+    
+    def test_pause_until(self):
+        task = ScheduledTask(
+            count_to_ten,
+            schedule=RunAfterEvery(seconds=1),
+            manager=self.manager,
+            start_immediately=True
+        )
+        two_seconds_from_now_time = (datetime.datetime.now() + datetime.timedelta(seconds=2)).strftime("%H:%M:%S")
+        pause_task = task.pause_until(two_seconds_from_now_time)
+        self.assertTrue(task.is_paused)
+        pause_task.join()
+        self.assertFalse(task.is_paused)
+        del task
+
+
+    def test_pause_for(self):
+        task = ScheduledTask(
+            count_to_ten,
+            schedule=RunAfterEvery(seconds=1),
+            manager=self.manager,
+            start_immediately=True
+        )
+        self.assertFalse(task.is_paused)
+        pause_task = task.pause_for(2)
+        self.assertTrue(task.is_paused)
+        pause_task.join()
+        self.assertFalse(task.is_paused)
+        del task
+
+    
+    def test_pause_at(self):
+        task = ScheduledTask(
+            count_to_ten,
+            schedule=RunAfterEvery(seconds=1),
+            manager=self.manager,
+            start_immediately=True
+        )
+        two_seconds_from_now_time = (datetime.datetime.now() + datetime.timedelta(seconds=2)).strftime("%H:%M:%S")
+        pause_task = task.pause_at(two_seconds_from_now_time)
+        self.assertFalse(task.is_paused)
+        pause_task.join()
+        self.assertTrue(task.is_paused)
+        del task
+
+
+    def test_pause_on(self):
+        task = ScheduledTask(
+            count_to_ten,
+            schedule=RunAfterEvery(seconds=1),
+            manager=self.manager,
+            start_immediately=True
+        )
+        two_seconds_from_now_dt = (datetime.datetime.now() + datetime.timedelta(seconds=2)).strftime("%Y-%m-%d %H:%M:%S")
+        pause_task = task.pause_on(two_seconds_from_now_dt)
+        self.assertFalse(task.is_paused)
+        pause_task.join()
+        self.assertTrue(task.is_paused)
+        del task
+
+
+    def test_cancel_after(self):
+        task = ScheduledTask(
+            count_to_ten,
+            schedule=RunAfterEvery(seconds=1),
+            manager=self.manager,
+            start_immediately=True
+        )
+        cancel_task = task.cancel_after(2)
+        self.assertFalse(task.cancelled)
+        cancel_task.join()
+        self.assertTrue(task.cancelled)
+        del task
+
+    
+    def test_cancel_at(self):
+        task = ScheduledTask(
+            count_to_ten,
+            schedule=RunAfterEvery(seconds=1),
+            manager=self.manager,
+            start_immediately=True
+        )
+        two_seconds_from_now_time = (datetime.datetime.now() + datetime.timedelta(seconds=2)).strftime("%H:%M:%S")
+        cancel_task = task.cancel_at(two_seconds_from_now_time)
+        self.assertFalse(task.cancelled)
+        cancel_task.join()
+        self.assertTrue(task.cancelled)
+        del task
+
+    
+    def test_cancel_on(self):
+        task = ScheduledTask(
+            count_to_ten,
+            schedule=RunAfterEvery(seconds=1),
+            manager=self.manager,
+            start_immediately=True
+        )
+        two_seconds_from_now_dt = (datetime.datetime.now() + datetime.timedelta(seconds=2)).strftime("%Y-%m-%d %H:%M:%S")
+        cancel_task = task.cancel_on(two_seconds_from_now_dt)
+        self.assertFalse(task.cancelled)
+        cancel_task.join()
+        self.assertTrue(task.cancelled)
+        del task
+
 
 
 if __name__ == "__main__":

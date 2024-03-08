@@ -12,7 +12,7 @@ except ImportError:
 
 from .manager import TaskManager
 from .bases import ScheduleType, Schedule
-from .utils import get_datetime_now, underscore_string
+from .utils import get_datetime_now, underscore_string, underscore_datetime
 from .descriptors import SetOnceDescriptor, AttributeDescriptor
 from .exceptions import TaskCancelled, TaskDuplicationError, TaskError, TaskExecutionError
 
@@ -368,7 +368,7 @@ class ScheduledTask:
         :return: The created task
         """
         self.pause()
-        return self.manager.run_at(time, self.resume, task_name=f"resume_{self.name}_at_{time}")
+        return self.manager.run_at(time, self.resume, task_name=f"resume_{self.name}_at_{underscore_datetime(time)}")
     
 
     def pause_on(self, datetime: str, /, tz: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> ScheduledTask:
@@ -380,7 +380,7 @@ class ScheduledTask:
         :return: The created task
         """
         tz = tz or self.schedule.tz
-        return self.manager.run_on(datetime, self.pause, tz=tz, task_name=f"pause_{self.name}_on_{datetime}")
+        return self.manager.run_on(datetime, self.pause, tz=tz, task_name=f"pause_{self.name}_on_{underscore_datetime(datetime)}")
     
 
     def pause_at(self, time: str, /) -> ScheduledTask:
@@ -390,7 +390,7 @@ class ScheduledTask:
         :param time: The time to pause this task. Time should be in the format 'HH:MM:SS'
         :return: The created task
         """
-        return self.manager.run_at(time, self.pause, task_name=f"pause_{self.name}_at_{time}")
+        return self.manager.run_at(time, self.pause, task_name=f"pause_{self.name}_at_{underscore_datetime(time)}")
     
     
     def cancel(self, wait: bool = True) -> None:
@@ -440,7 +440,7 @@ class ScheduledTask:
         :param time: The time to cancel this task. Time should be in the format 'HH:MM:SS'
         :return: The created task
         '"""
-        return self.manager.run_at(time, self.cancel, task_name=f"cancel_{self.name}_at_{time}")
+        return self.manager.run_at(time, self.cancel, task_name=f"cancel_{self.name}_at_{underscore_datetime(time)}")
     
 
     def cancel_on(self, datetime: str, /, tz: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> ScheduledTask:
@@ -452,7 +452,7 @@ class ScheduledTask:
         :return: The created task
         """
         tz = tz or self.schedule.tz
-        return self.manager.run_on(datetime, self.cancel, tz=tz, task_name=f"cancel_{self.name}_on_{datetime}")
+        return self.manager.run_on(datetime, self.cancel, tz=tz, task_name=f"cancel_{self.name}_on_{underscore_datetime(datetime)}")
 
 
 
