@@ -22,7 +22,7 @@ from .logging import get_logger
 
 class TaskManager:
     """
-    Manages scheduled tasks.
+    Manages the execution of scheduled tasks.
     """
     __slots__ = (
         "name", "_tasks", "_futures", "_continue", "_loop", 

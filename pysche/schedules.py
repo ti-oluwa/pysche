@@ -29,8 +29,13 @@ class RunAt(Schedule):
         
         Example:
         ```
-        run_at_12_30pm_daily = RunAt(time="12:30:00", tz="Africa/Lagos")
-        @run_at_12_30pm_daily(manager=task_manager, **kwargs)
+        import pysche
+
+        manager = pysche.TaskManager()
+        s = pysche.schedules
+        run_at_12_30pm_daily = s.RunAt("12:30:00", tz="Africa/Lagos")
+
+        @manager.newtask(run_at_12_30pm_daily, **kwargs)
         def func():
             print("Hello world!")
 
@@ -110,8 +115,12 @@ class RunAfterEvery(Schedule):
 
         Example:
         ```
-        run_afterevery_5_seconds = RunAfterEvery(seconds=5)
-        @run_afterevery_5_seconds(manager=task_manager, **kwargs)
+        import pysche
+
+        manager = pysche.TaskManager()
+        s = pysche.schedules
+
+        @manager.newtask(s.RunAfterEvery(seconds=5), **kwargs)
         def func():
             print("Hello world!")
 
@@ -194,9 +203,13 @@ class RunFrom__To(AfterEveryMixin, Schedule):
 
         Example:
         ```
-        run_from_12_30_to_13_30 = RunFrom__To(_from="12:30:00", _to="13:30:00", tz="Africa/Lagos")
+        import pysche
 
-        @run_from_12_30_to_13_30.afterevery(seconds=5)(manager=task_manager, **kwargs)
+        manager = pysche.TaskManager()
+        s = pysche.schedules
+        run_from_12_30_to_13_30 = s.RunFrom__To("12:30:00", "13:30:00", tz="Africa/Lagos")
+
+        @run_from_12_30_to_13_30.afterevery(seconds=5)(manager, **kwargs)
         def func():
             print("Hello world!")
         
@@ -264,9 +277,12 @@ class TimePeriodSchedule(From__ToMixin, AtMixin, AfterEveryMixin, Schedule):
 
     Example:
     ```python
-    run_on_4th_november_from_2_30_to_2_35_afterevery_5s = RunInMonth(month=11).on_day_of_month(day=4).from__to(
-        _from="14:30:00", _to="14:35:00"
-    ).afterevery(seconds=5)
+    import pysche
+
+    manager = pysche.TaskManager()
+    s = pysche.schedules
+
+    run_on_4th_november_from_2_30_to_2_35_afterevery_5s = s.RunInMonth(11).on_day_of_month(4).from__to("14:30:00", "14:35:00").afterevery(seconds=5)
     ```
     """
     timedelta = SetOnceDescriptor()
@@ -349,8 +365,13 @@ class RunOnWeekDay(HMSAfterEveryMixin, TimePeriodSchedule):
 
         Example:
         ```
-        run_on_mondays = RunOnWeekDay(weekday=0)
-        @run_on_mondays.afterevery(minutes=10)(manager=task_manager, **kwargs)
+        import pysche
+
+        manager = pysche.TaskManager()
+        s = pysche.schedules
+        run_on_mondays = s.RunOnWeekDay(weekday=0)
+
+        @manager.newtask(run_on_mondays.afterevery(minutes=10), **kwargs)
         def func():
             print("Hello world!")
 
@@ -383,8 +404,13 @@ class RunOnDayOfMonth(HMSAfterEveryMixin, TimePeriodSchedule):
 
         Example:
         ```
-        run_on_1st_of_every_month = RunOnDayOfMonth(day=1)
-        @run_on_1st_of_every_month.at("14:21:00")(manager=task_manager, **kwargs)
+        import pysche
+
+        manager = pysche.TaskManager()
+        s = pysche.schedules
+        run_on_1st_of_every_month = s.RunOnDayOfMonth(day=1)
+
+        @run_on_1st_of_every_month.at("14:21:00")(manager, **kwargs)
         def func():
             print("Hello world!")
          
@@ -464,8 +490,13 @@ class RunFromWeekDay__To(HMSAfterEveryMixin, RunFromSchedule):
         
         Example:
         ```
-        run_from_monday_to_friday = RunFromWeekDay__To(_from=0, _to=4)
-        @run_from_monday_to_friday.at("11:00:00")(manager=task_manager, **kwargs)
+        import pysche
+
+        manager = pysche.TaskManager()
+        s = pysche.schedules
+        run_from_monday_to_friday = s.RunFromWeekDay__To(0, 4)
+
+        @run_from_monday_to_friday.at("11:00:00")(manager, **kwargs)
         def func():
             print("Hello world!")
 
@@ -510,8 +541,13 @@ class RunFromDayOfMonth__To(HMSAfterEveryMixin, RunFromSchedule):
 
         Example:
         ```
-        run_from_1st_to_5th_of_every_month = RunFromDayOfMonth__To(_from=1, _to=5)
-        @run_from_1st_to_5th_of_every_month.at("00:00:00")(manager=task_manager, **kwargs)
+        import pysche
+
+        manager = pysche.TaskManager()
+        s = pysche.schedules
+        run_from_1st_to_5th_of_every_month = s.RunFromDayOfMonth__To(1, 5)
+
+        @manager.newtask(run_from_1st_to_5th_of_every_month.at("00:00:00"), **kwargs)
         def func():
             print("Hello world!")
 
@@ -587,13 +623,16 @@ class RunInMonth(DHMSAfterEveryMixin, FromDay__ToMixin, OnDayMixin, TimePeriodSc
 
         Example:
         ```
-        run_every_january = RunInMonth(month=1)
-        @run_every_january.from_weekday__to(
-            _from=2
-            _to=6
-        )
-        .at("06:00:00")(
-            manager=task_manager, **kwargs
+        import pysche
+
+        manager = pysche.TaskManager()
+        s = pysche.schedules
+        run_every_january = s.RunInMonth(month=1)
+
+        @pysche.task(
+            schedule=run_every_january.from_weekday__to(2, 6).at("06:00:00"), 
+            manager=manager,
+            **kwargs
         )
         def func():
             print("Hello world!")
@@ -642,13 +681,14 @@ class RunFromMonth__To(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunFro
 
         Example:
         ```
-        run_from_january_to_march = RunFromMonth__To(_from=1, _to=3)
-        @run_from_january_to_march.from_dayofmonth__to(
-            _from=12, _to=28
-        )
-        .afterevery(
-            minutes=5, seconds=20
-        )(manager=task_manager, **kwargs)
+        import pysche
+
+        manager = pysche.TaskManager()
+        s = pysche.schedules
+        run_from_january_to_march = s.RunFromMonth__To(1, 3)
+
+        @run_from_january_to_march.from_dayofmonth__to(12, 28)
+        .afterevery(minutes=5, seconds=20)(manager, **kwargs)
         def func():
             print("Hello world!")
 
@@ -704,14 +744,14 @@ class RunInYear(FromMonth__ToMixin, FromDay__ToMixin, InMonthMixin, OnDayMixin, 
 
         Example:
         ```
-        run_in_2021 = RunInYear(year=2021)
-        @run_in_2021.from_month__to(
-            _from=1, _to=6
-        )
-        .from_weekday__to(
-            _from=3, _to=5
-        )
-        .at("03:43:00")(manager=task_manager, **kwargs)
+        import pysche
+
+        manager = pysche.TaskManager()
+        s = pysche.schedules
+        run_in_2021 = s.RunInYear(2021)
+
+        @run_in_2021.from_month__to(1, 6)
+        .from_weekday__to(3, 5).at("03:43:00")(manager, **kwargs)
         def func():
             print("Hello world!")
 
@@ -745,11 +785,14 @@ class RunFromDateTime__To(InMonthMixin, OnDayMixin, FromMonth__ToMixin, FromDay_
 
         Example:
         ```
-        run_from_2021_01_01_00_00_to_2022_01_02_00_05 = RunFromDateTime__To(_from="2021-01-01 00:00:00", _to="2022-01-02 00:05:00")
+        import pysche
+
+        manager = pysche.TaskManager()
+        s = pysche.schedules
+        run_from_2021_01_01_00_00_to_2022_01_02_00_05 = s.RunFromDateTime__To("2021-01-01 00:00:00", "2022-01-02 00:05:00")
+        
         @run_from_2021_01_01_00_00_to_2022_01_02_00_05
-        .from__to(
-            _from="08:00:00", _to="15:00:00"
-        )(manager=task_manager, **kwargs)
+        .from__to("08:00:00", "15:00:00")(manager, **kwargs)
         def func():
             print("Hello world!")
         
