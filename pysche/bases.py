@@ -74,7 +74,7 @@ class AbstractBaseSchedule(ABC):
     def is_due(self) -> bool:
         """Returns True if the schedule is due otherwise False."""
         pass
-    
+
     @abstractmethod
     def make_schedule_func_for_task(self, scheduledtask) -> Callable[..., Coroutine[Any, Any, None]]:
         """
@@ -105,18 +105,21 @@ class Schedule(AbstractBaseSchedule):
     Schedules can be chained together to create a complex schedule
     called a "schedule clause". Although, they can still be used singly.
 
-    A schedule clause must always end with a schedule that has a timedelta value.
+    A schedule clause must always end with a schedule that has a wait duration.
+
+    NOTE: A Schedule instance can be used for multiple tasks. Therefore, because of this,
+    the next execution time of the tasks based on the schedule is not available.
     """
     parent = SetOnceDescriptor(AbstractBaseSchedule)
     tz = SetOnceDescriptor(zoneinfo.ZoneInfo)
-    timedelta = SetOnceDescriptor(datetime.timedelta)
+    wait_duration = SetOnceDescriptor(datetime.timedelta)
 
     def __init__(self, **kwargs):
         """
         Creates a schedule.
 
-        :param parent: The schedule this schedule is chained to.
-        :param tz: The timezone to use for the schedule. If not specified, the timezone of the parent schedule will be used.
+        :kwarg parent: The schedule this schedule is chained to.
+        :kwarg tz: The timezone to use for the schedule. If not specified, the timezone of the parent schedule will be used.
         """
         parent = kwargs.get("parent", None)
         tz = kwargs.get("tz", None)
@@ -137,25 +140,28 @@ class Schedule(AbstractBaseSchedule):
 
 
     def make_schedule_func_for_task(self, scheduledtask) -> Callable[..., Coroutine[Any, Any, None]]:
-        schedule_is_due: Callable[..., bool] = scheduledtask.manager._make_asyncable(self.is_due)
+        from .tasks import ScheduledTask
+        
+        task: ScheduledTask = scheduledtask
+        schedule_is_due: Callable[..., bool] = task.manager._make_asyncable(self.is_due)
 
         async def schedule_func(*args, **kwargs) -> None:
-            # If the schedule has a timedelta, sleep for the timedelta period
-            if self.timedelta is not None and scheduledtask.is_paused is False:
-                await asyncio.sleep(self.timedelta.total_seconds())
+            # If the schedule has a wait duration, sleep for the duration before running the task
+            if self.wait_duration is not None and task.is_paused is False:
+                await asyncio.sleep(self.wait_duration.total_seconds())
 
             # If the task is paused, do not proceed
-            while scheduledtask.is_paused is True:
+            while task.is_paused is True:
                 await asyncio.sleep(0.0001)
                 continue
             
             if await schedule_is_due() is True:
-                scheduledtask._last_executed_at = get_datetime_now(self.tz)
-                await scheduledtask.func(*args, **kwargs)
+                task._last_executed_at = get_datetime_now(self.tz)
+                await task.func(*args, **kwargs)
             return
 
-        schedule_func.__name__ = scheduledtask.name
-        schedule_func.__qualname__ = scheduledtask.name
+        schedule_func.__name__ = task.name
+        schedule_func.__qualname__ = task.name
         return schedule_func
 
     

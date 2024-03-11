@@ -2,7 +2,7 @@ from __future__ import annotations
 import uuid
 import asyncio
 import time
-from typing import Callable, Any, Coroutine, List, Optional, Tuple, Dict, Type
+from typing import Callable, Any, Coroutine, List, Optional, Tuple, Dict
 import functools
 import datetime
 try:
@@ -19,7 +19,11 @@ from .exceptions import TaskCancelled, TaskDuplicationError, TaskError, TaskExec
 
 
 class ScheduledTask:
-    """Task that runs a function on a specified schedule"""
+    """
+    A task that runs a function on a specified schedule.
+
+    This task runs concurrently with other tasks managed by the same manager in the background.
+    """
     id = SetOnceDescriptor(str)
     name = AttributeDescriptor(str)
     manager = SetOnceDescriptor(TaskManager)
@@ -141,15 +145,7 @@ class ScheduledTask:
     def last_executed_at(self) -> datetime.datetime | None:
         """Returns the last time this task was executed (in the timezone in which the task was scheduled)"""
         return self._last_executed_at
-    
-    @property
-    def next_execution_at(self) -> datetime.datetime | None:
-        """Returns the next time this task will be executed (in the timezone in which the task was scheduled)"""
-        if not self.last_executed_at:
-            # If task has not been executed before, return the time it will be executed for the first time
-            return self.started_at + self.schedule.timedelta
-        # Else, return the time it will be executed next
-        return self.last_executed_at + self.schedule.timedelta
+
     
     @property
     def status(self):
@@ -167,7 +163,9 @@ class ScheduledTask:
         """
         Add a tag to the task.
 
-        Tags can be used
+        Tags can be used to group tasks together.
+
+        Get all tasks with a particular tag using `manager.get_tasks('<tag_name>')`
         """
         if tag not in self.tags:
             self.tags = [*self.tags, tag]

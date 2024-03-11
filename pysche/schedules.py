@@ -7,7 +7,7 @@ from .utils import (
     parse_datetime, MinMaxValidator as minmax,
     construct_datetime_from_time, parse_time, get_datetime_now
 )
-from .descriptors import SetOnceDescriptor, AttributeDescriptor
+from .descriptors import SetOnceDescriptor, AttributeDescriptor, null
 
 
 month_validator = minmax(1, 12)
@@ -18,7 +18,7 @@ weekday_validator = minmax(0, 6)
 
 class RunAt(Schedule):
     """Task will run at the specified time, everyday"""
-    timedelta = AttributeDescriptor(datetime.timedelta, default=None)
+    wait_duration = AttributeDescriptor(datetime.timedelta, default=None)
     time = SetOnceDescriptor(datetime.time)
 
     def __init__(self, time: str, **kwargs) -> None:
@@ -44,7 +44,7 @@ class RunAt(Schedule):
         """
         super().__init__(**kwargs)
         self.time = parse_time(time=time, tzinfo=self.tz)
-        self.timedelta = self.get_next_occurrence_of_time(self.time)
+        self.wait_duration = self.get_next_occurrence_of_time(self.time)
         return None
 
 
@@ -86,7 +86,7 @@ class RunAt(Schedule):
             is_due = self.parent.is_due() and is_due
 
         if is_due:
-            self.timedelta = self.get_next_occurrence_of_time(self.time)
+            self.wait_duration = self.get_next_occurrence_of_time(self.time)
         return is_due
     
         
@@ -127,14 +127,14 @@ class RunAfterEvery(Schedule):
         func()
         ```
         """
-        self.timedelta = datetime.timedelta(
+        self.wait_duration = datetime.timedelta(
             days=days,
             seconds=seconds,
             minutes=minutes,
             hours=hours,
             weeks=weeks,
         )
-        if self.timedelta.total_seconds() <= 0:
+        if self.wait_duration.total_seconds() <= 0:
             raise ValueError("At least one of the arguments must be greater than 0")
         super().__init__(**kwargs)
 
@@ -268,12 +268,19 @@ class From__ToMixin:
 
 
 
+def _ensure_value_is_null(value: Any) -> None:
+    """Private validator to ensure that the `wait_duration` value of a time period schedule is null."""
+    if not isinstance(value, null):
+        raise ValueError(f"Expected value to be of type '{null.__name__}', not '{type(value).__name__}'.")
+    return
+
+
 class TimePeriodSchedule(From__ToMixin, AtMixin, AfterEveryMixin, Schedule):
     """
     A time period schedule is a schedule that will only be due at a specific time
-    or within a specified time frame or period. This kind of schedule has its timedelta
-    attribute set to None, meaning it cannot be used solely to create a task. It has to be
-    chained with a schedule that has its timedelta defined to form a useable schedule clause.
+    or within a specified time frame or period. This kind of schedule has no wait period/duration, 
+    meaning it cannot be used solely to create a task. It has to be
+    chained with a schedule that has its wait period/duration defined to form a useable schedule clause.
 
     Example:
     ```python
@@ -285,7 +292,7 @@ class TimePeriodSchedule(From__ToMixin, AtMixin, AfterEveryMixin, Schedule):
     run_on_4th_november_from_2_30_to_2_35_afterevery_5s = s.RunInMonth(11).on_day_of_month(4).from__to("14:30:00", "14:35:00").afterevery(seconds=5)
     ```
     """
-    timedelta = SetOnceDescriptor()
+    wait_duration = SetOnceDescriptor(validators=[_ensure_value_is_null])
     
     def __call__(
         self, 
@@ -298,11 +305,11 @@ class TimePeriodSchedule(From__ToMixin, AtMixin, AfterEveryMixin, Schedule):
         start_immediately: bool = True
     ):
         try:
-            self.timedelta
+            self.wait_duration
         except KeyError:
             raise ValueError(
                 f"The '{self.__class__.__name__}' schedule cannot be used solely to create a task."
-                " It has to be chained with a schedule that has its timedelta defined to form a useable schedule clause."
+                " It has to be chained with a schedule that has it's wait duration specified to form a useable schedule clause."
             )
         return super().__call__(
             manager=manager, 
@@ -717,7 +724,7 @@ class RunFromMonth__To(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunFro
             return self.parent.is_due() and is_due
         return is_due
 
-
+    
 
 class FromMonth__ToMixin:
     """Allows chaining of the "from_month__to" schedule to other schedules."""
@@ -790,7 +797,7 @@ class RunFromDateTime__To(InMonthMixin, OnDayMixin, FromMonth__ToMixin, FromDay_
         manager = pysche.TaskManager()
         s = pysche.schedules
         run_from_2021_01_01_00_00_to_2022_01_02_00_05 = s.RunFromDateTime__To("2021-01-01 00:00:00", "2022-01-02 00:05:00")
-        
+
         @run_from_2021_01_01_00_00_to_2022_01_02_00_05
         .from__to("08:00:00", "15:00:00")(manager, **kwargs)
         def func():

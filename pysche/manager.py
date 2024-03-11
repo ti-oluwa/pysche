@@ -80,6 +80,16 @@ class TaskManager:
         if not isinstance(other, TaskManager):
             return False
         return hash(self) == hash(other)
+    
+
+    def __gt__(self, other: TaskManager) -> bool:
+        if not isinstance(other, TaskManager):
+            return False
+        return len(self.tasks) > len(other.tasks)
+    
+    
+    def __lt__(self, other: TaskManager) -> bool:
+        return not self.__gt__(other)
 
 
     @property
@@ -95,9 +105,9 @@ class TaskManager:
     @property
     def errors(self) -> Dict[str, List[Exception]]:
         """
-        Returns a dictionary of errors encountered while executing tasks.
+        Returns a dictionary of errors/exceptions encountered while executing tasks.
 
-        Errors are mapped to the name of the task in which they occurred.
+        Errors/exceptions are mapped to the name of the task in which they occurred.
         """
         return { task.name : task.errors for task in self.tasks[:] if task.errors }
     
@@ -527,6 +537,7 @@ class TaskManager:
     def newtask(
         self,
         schedule,
+        func: Optional[Callable] = None,
         *,
         name: Optional[str] = None,
         tags: Optional[List[str]] = None,
@@ -536,10 +547,14 @@ class TaskManager:
         start_immediately: bool = True,
     ):
         """
-        Function decorator. The decorated function returns a new scheduled task when called.
+        Takes a function to be scheduled and returns a version of the function such that when called,
+        it creates a new scheduled task and returns it. 
+
+        This method can also be used as a function decorator. The decorated function returns a new scheduled task when called.
         The returned task is managed by this manager and is executed on the specified schedule.
 
         :param schedule: The schedule to run the task on.
+        :param func: The function to schedule. If not specified, the function being decorated will be scheduled.
         :param name: The preferred name for this task. If not specified, the name of the function will be used.
         :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
         :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
@@ -550,6 +565,31 @@ class TaskManager:
         :param start_immediately: If True, the task will start immediately after creation. 
         This is only applicable if the manager is already running.
         Otherwise, task execution will start when the manager starts executing tasks.
+
+        #### Usage as a function decorator:
+        ```python
+        import pysche
+
+        manager = pysche.TaskManager()
+        s = pysche.schedules
+
+        @manager.newtask(s.RunAfterEvery(seconds=2))
+        def speak(msg):
+            print(msg)
+
+        task = speak('Hello!')
+        ```
+
+        #### Usage as a regular method:
+        ```python
+        import pysche
+
+        manager = pysche.TaskManager()
+        s = pysche.schedules
+
+        speak = manager.newtask(s.RunAfterEvery(seconds=2), speak)
+        task = speak('Hey!!')
+        ```
         """
         from .tasks import make_task_decorator_for_manager
 
@@ -563,4 +603,7 @@ class TaskManager:
             max_retry=max_retry,
             start_immediately=start_immediately
         )
+
+        if func is not None:
+            return func_decorator(func)
         return func_decorator
