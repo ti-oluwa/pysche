@@ -49,12 +49,14 @@ def get_logger(
         logger.addHandler(file_handler)
 
     if to_console is True:
-        error_console = Console(stderr=True, height=30, color_system="auto")
+        error_console = Console(stderr=True, width=100, height=50, color_system="auto")
         rich_handler = RichHandler(
+            level=base_level,
             console=error_console, 
             show_time=False,
             rich_tracebacks=True,
-            markup=True
+            markup=True, 
+            show_path=False
         )
         formatter = logging.Formatter(
             fmt=format.replace("%(levelname)s", ""), 

@@ -27,7 +27,7 @@ class AbstractBaseSchedule(ABC):
         tags: Optional[List[str]] = None,
         execute_then_wait: bool = False,
         stop_on_error: bool = False,
-        max_retry: int = 0,
+        max_retries: int = 0,
         start_immediately: bool = True
     ):
         """
@@ -38,9 +38,9 @@ class AbstractBaseSchedule(ABC):
         :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
         :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
         Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
-        without retry, irrespective of `stop_on_error` or `max_retry`
+        without retry, irrespective of `stop_on_error` or `max_retries`
         :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
-        :param max_retry: The maximum number of times the task will be retried after an error is encountered.
+        :param max_retries: The maximum number of times the task will be retried consecutively after an error is encountered.
         :param start_immediately: If True, the task will start immediately after creation. 
         This is only applicable if the manager is already running.
         Otherwise, task execution will start when the manager starts executing tasks.
@@ -60,7 +60,7 @@ class AbstractBaseSchedule(ABC):
                     tags=tags,
                     execute_then_wait=execute_then_wait,
                     stop_on_error=stop_on_error,
-                    max_retry=max_retry,
+                    max_retries=max_retries,
                     start_immediately=start_immediately,
                 )
             

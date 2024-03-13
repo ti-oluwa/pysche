@@ -23,6 +23,30 @@ from .logging import get_logger
 class TaskManager:
     """
     Manages the execution of scheduled tasks.
+
+    Task managers can also perform one-time execution of functions on a specified schedule.
+
+    Example:
+    ```python
+    import pysche
+
+    manager = pysche.TaskManager()
+
+    def say_hi(to: str):
+        print(f"Hi! {to.title()}")
+
+    def main():
+        manager.start()
+        # Task 1
+        say_hi_to_michael_after_5s = manager.run_after(5, say_hi, args=("Michael",))
+        # Task 2
+        say_hi_to_dan_at_12pm = manager.run_at("12:00:00", say_hi, kwargs={"to":"Dan"})
+        # Wait for tasks to finish executing
+        manager.join()
+    
+    if __name__ == "__main__":
+        main()
+    ```
     """
     __slots__ = (
         "name", "_tasks", "_futures", "_continue", "_loop", 
@@ -94,13 +118,15 @@ class TaskManager:
 
     @property
     def has_started(self) -> bool:
-        """Returns True if the task manager has started executing tasks"""
+        """
+        Returns True if the task manager has started and is able to execute tasks
+        """
         return self._continue is True and self._loop.is_running()
     
     @property
     def tasks(self):
-        """Returns a list of scheduled tasks being managed currently"""
-        return [ task for task in self._tasks if task.manager == self ]
+        """Returns a list of scheduled tasks that are currently being managed"""
+        return list(filter(lambda task: task.manager == self, self._tasks))
     
     @property
     def errors(self) -> Dict[str, List[Exception]]:
@@ -330,7 +356,7 @@ class TaskManager:
             kwargs=kwargs,
             name=task_name or f"run_{func.__name__}_after_{delay}s",
             stop_on_error=True,
-            max_retry=0,
+            max_retries=0,
             start_immediately=False,
         )
         wrapped_func.task = task
@@ -382,7 +408,7 @@ class TaskManager:
             kwargs=kwargs,
             name=task_name or f"run_{func.__name__}_on_{dt}",
             stop_on_error=True,
-            max_retry=0,
+            max_retries=0,
             start_immediately=False,
         )
         wrapped_func.task = task
@@ -428,7 +454,7 @@ class TaskManager:
             kwargs=kwargs,
             name=task_name or f"run_{func.__name__}_at_{time}",
             stop_on_error=True,
-            max_retry=0,
+            max_retries=0,
             start_immediately=False,
         )
         wrapped_func.task = task
@@ -543,7 +569,7 @@ class TaskManager:
         tags: Optional[List[str]] = None,
         execute_then_wait: bool = False,
         stop_on_error: bool = False,
-        max_retry: int = 0,
+        max_retries: int = 0,
         start_immediately: bool = True,
     ):
         """
@@ -559,9 +585,9 @@ class TaskManager:
         :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
         :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
         Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
-        without retry, irrespective of `stop_on_error` or `max_retry`
+        without retry, irrespective of `stop_on_error` or `max_retries`
         :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
-        :param max_retry: The maximum number of times the task will be retried after an error is encountered.
+        :param max_retries: The maximum number of times the task will be retried consecutively after an error is encountered.
         :param start_immediately: If True, the task will start immediately after creation. 
         This is only applicable if the manager is already running.
         Otherwise, task execution will start when the manager starts executing tasks.
@@ -600,7 +626,7 @@ class TaskManager:
             tags=tags,
             execute_then_wait=execute_then_wait,
             stop_on_error=stop_on_error,
-            max_retry=max_retry,
+            max_retries=max_retries,
             start_immediately=start_immediately
         )
 

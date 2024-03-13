@@ -1,5 +1,6 @@
 from __future__ import annotations
 import uuid
+import random
 import asyncio
 import time
 from typing import Callable, Any, Coroutine, List, Optional, Tuple, Dict
@@ -20,9 +21,41 @@ from .exceptions import TaskCancelled, TaskDuplicationError, TaskError, TaskExec
 
 class ScheduledTask:
     """
-    A task that runs a function on a specified schedule.
+    Runs a function on a specified schedule.
 
-    This task runs concurrently with other tasks managed by the same manager in the background.
+    Scheduled tasks always run concurrently in the background.
+
+    Example:
+    ```python
+    import pysche
+
+
+    def say_goodnight(to: str):
+        print(f"Goodnight {to}!")
+
+    s = pysche.schedules
+    manager = pysche.TaskManager("manager")
+
+    def main():
+        # Create task to run `say_goodnight` at 8pm Lagos timezone
+        task = pysche.ScheduledTask(
+            func=say_goodnight,
+            schedule=s.RunAt("20:00:00", "Africa/Lagos"),
+            manager=manager,
+            kwargs={'to': 'Tolu'},
+            tags=["greeting"],
+            start_immediately=True,
+        )
+        # Tell manager to start executing tasks
+        manager.start()
+        print(manager.is_managing(task)) 
+        # >>> True
+        # Tell manager to wait for all tasks to finish executing before proceeding
+        manager.join()
+
+    if __name__ == "__main__":
+        main()
+    ```
     """
     id = SetOnceDescriptor(str)
     name = AttributeDescriptor(str)
@@ -33,7 +66,7 @@ class ScheduledTask:
     kwargs = AttributeDescriptor(dict, default={})
     execute_then_wait = AttributeDescriptor(bool, default=False)
     stop_on_error = AttributeDescriptor(bool, default=False)
-    max_retry = AttributeDescriptor(int, default=0)
+    max_retries = AttributeDescriptor(int, default=0)
     tags = AttributeDescriptor(list, default=[])
     started_at = SetOnceDescriptor(datetime.datetime, default=None)
     _is_active = AttributeDescriptor(bool, default=False)
@@ -48,13 +81,13 @@ class ScheduledTask:
         schedule: ScheduleType,
         manager: TaskManager,
         *,
-        args: Optional[Tuple[Any]] = None,
+        args: Optional[Tuple[Any, ...]] = None,
         kwargs: Optional[Dict[str, Any]] = None,
         name: Optional[str] = None,
         tags: Optional[List[str]] = None,
         execute_then_wait: bool = False,
         stop_on_error: bool = False,
-        max_retry: int = 0,
+        max_retries: int = 0,
         start_immediately: bool = True,
     ) -> None:
         """
@@ -69,14 +102,14 @@ class ScheduledTask:
         :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
         :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
         Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
-        without retry, irrespective of `stop_on_error` or `max_retry`
+        without retry, irrespective of `stop_on_error` or `max_retries`
         :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
-        :param max_retry: The maximum number of times the task will be retried after an error is encountered.
+        :param max_retries: The maximum number of times the task will be retried consecutively after an error is encountered.
         :param start_immediately: If True, the task will start immediately after creation. 
         This is only applicable if the manager is already running.
         Otherwise, task execution will start when the manager starts executing tasks.
         """
-        self.id = uuid.uuid4().hex[-6:]
+        self.id = "".join(random.choices(uuid.uuid4().hex, k=6))
         self.manager = manager
         func = self._wrap_func_for_time_stats(func)
         self.func = self.manager._make_asyncable(func)
@@ -98,7 +131,7 @@ class ScheduledTask:
 
         self.execute_then_wait = execute_then_wait
         self.stop_on_error = stop_on_error
-        self.max_retry = max_retry
+        self.max_retries = max_retries
         self.schedule = schedule
         self.manager._tasks.append(self)
         if start_immediately:
@@ -186,7 +219,8 @@ class ScheduledTask:
         :param msg: The message to be logged.
         :param exception: If True, the message will be logged as an exception.
         """
-        self.manager.log(f"{underscore_string(self.manager.name)}({underscore_string(self.name)})  {msg}", **kwargs)
+        log_detail = f"{underscore_string(self.manager.name)}({underscore_string(self.name)})\t{msg}"
+        self.manager.log(log_detail, **kwargs)
         if exception:
             kwargs.pop("level", None)
             self.manager.log("An exception occurred: ", level="DEBUG", exc_info=1, **kwargs)
@@ -227,14 +261,17 @@ class ScheduledTask:
                     self._errors.append(exc)
                     self.log(f"{exc}\n", level="ERROR", exception=True)
 
-                    if self.stop_on_error is True or err_count >= self.max_retry:
+                    if self.stop_on_error is True or err_count >= self.max_retries:
                         self._failed = True
                         self._is_active = False
                         self.log("Task execution failed.\n", level="CRITICAL")
                         break
                     
-                    self.log(f"Retrying task execution. Retry count: {err_count + 1}\n")
                     err_count += 1
+                    self.log(f"Retrying task execution. Retries remaining: {self.max_retries - err_count}\n")
+                    continue
+                else:
+                    err_count = 0
                     continue
         finally:
             # If task exits loop, task has stopped executing
@@ -410,7 +447,7 @@ class ScheduledTask:
                 # be found for the task then `manager._futures` has been tampered with.
                 # Raise a runtime error for this
                 raise TaskError(
-                    f"{self.__class__.__name__}: Cannot find future '{self.id}' in manager. '_tasks' is out of sync with '_futures'.\n"
+                    f"Cannot find future for task '{self.name}[id={self.id}]' in '{self.manager.name}'. Tasks are out of sync with futures.\n"
                 )
         else: 
             task_future.cancel()
@@ -453,7 +490,13 @@ class ScheduledTask:
         return self.manager.run_on(datetime, self.cancel, tz=tz, task_name=f"cancel_{self.name}_on_{underscore_datetime(datetime)}")
 
 
+    def add_callback(self, callback: Callable, trigger: str = "error"):
+        pass
 
+
+
+
+# ------------- DECORATOR AND DECORATOR FACTORY ------------- #
 def task(
     schedule: ScheduleType,
     manager: TaskManager,
@@ -462,7 +505,7 @@ def task(
     tags: Optional[List[str]] = None,
     execute_then_wait: bool = False,
     stop_on_error: bool = False,
-    max_retry: int = 0,
+    max_retries: int = 0,
     start_immediately: bool = True,
 ) -> Callable[[Callable], Callable[..., ScheduledTask]]:
     """
@@ -475,9 +518,9 @@ def task(
     :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
     :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
     Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
-    without retry, irrespective of `stop_on_error` or `max_retry`
+    without retry, irrespective of `stop_on_error` or `max_retries`
     :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
-    :param max_retry: The maximum number of times the task will be retried after an error is encountered.
+    :param max_retries: The maximum number of times the task will be retried consecutively after an error is encountered.
     :param start_immediately: If True, the task will start immediately after creation. 
     This is only applicable if the manager is already running.
     Otherwise, task execution will start when the manager starts executing tasks.
@@ -488,7 +531,7 @@ def task(
         tags=tags,
         execute_then_wait=execute_then_wait,
         stop_on_error=stop_on_error,
-        max_retry=max_retry,
+        max_retries=max_retries,
         start_immediately=start_immediately,
     )
     return func_decorator
@@ -530,7 +573,7 @@ def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Ca
         tags: Optional[List[str]] = None,
         execute_then_wait: bool = False,
         stop_on_error: bool = False,
-        max_retry: int = 0,
+        max_retries: int = 0,
         start_immediately: bool = True,
     ) -> Callable[[Callable], ScheduledTask]:
         return task_decorator_for_manager(
@@ -539,7 +582,7 @@ def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Ca
             tags=tags,
             execute_then_wait=execute_then_wait,
             stop_on_error=stop_on_error,
-            max_retry=max_retry,
+            max_retries=max_retries,
             start_immediately=start_immediately,
         )
     
