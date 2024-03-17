@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Sequence, List, Mapping, Optional
 import asyncio
 import functools
 from concurrent.futures import CancelledError, ThreadPoolExecutor
+from dataclasses import KW_ONLY, dataclass, field, InitVar
 
 
 from .utils import (
@@ -20,6 +21,7 @@ from .logging import get_logger
 
 
 
+@dataclass(slots=True)
 class TaskManager:
     """
     Manages the execution of scheduled tasks.
@@ -40,7 +42,7 @@ class TaskManager:
         # Task 1
         say_hi_to_michael_after_5s = manager.run_after(5, say_hi, args=("Michael",))
         # Task 2
-        say_hi_to_dan_at_12pm = manager.run_at("12:00:00", say_hi, kwargs={"to":"Dan"})
+        say_hi_to_dan_at_12pm = manager.run_at("12:00:00", say_hi, kwargs={"to": "Dan"})
         # Wait for tasks to finish executing
         manager.join()
     
@@ -48,36 +50,40 @@ class TaskManager:
         main()
     ```
     """
-    __slots__ = (
-        "name", "_tasks", "_futures", "_continue", "_loop", 
-        "_workthread", "_executor", "max_duplicates", "logger"
-    )
+    name: Optional[str] = None
+    """The name of the task manager. Defaults to the class name and a unique ID."""
+    _: KW_ONLY
+    max_duplicates: int = -1
+    """
+    The maximum number of task duplicates that can be managed at a time.
+    Set to a negative number to allow unlimited instances.
+    """
+    log_to: InitVar[Optional[str]] = None
+    """
+    Path to log file. If provided, task execution details are logged to the file.
+    """
 
-    def __init__(self, name: str = None, max_duplicates: int = -1, log_to: str = None):
-        """
-        Creates a new task manager.
+    # Used deque to allow for thread-safety and O(1) time complexity when removing tasks from the list
+    _tasks: deque['tasks.ScheduledTask'] = field(init=False, default_factory=deque)
+    """A list of scheduled tasks that are currently being managed."""
+    _futures: deque[asyncio.Future]  = field(init=False, default_factory=deque)
+    """A list of futures that from the scheduled tasks being managed."""
+    _continue: bool = field(init=False, default=False)
+    """A flag that allows all ScheduleTasks managed by this manager to run."""
+    _loop: asyncio.AbstractEventLoop = field(init=False, default_factory=asyncio.new_event_loop)
+    """The event loop used to run scheduled tasks."""
+    _workthread: Optional[threading.Thread] = field(init=False, default=None)
+    """The thread used to run the event loop."""
+    _executor: ThreadPoolExecutor = field(init=False)
+    """The executor used to run blocking functions as asynchronous tasks."""
+    logger: logging.Logger = field(init=False)
+    """The logger used to log task execution details."""
 
-        :param name: The name of the task manager. Defaults to the class name and a unique ID.
-        :param max_duplicates: The maximum number of task duplicates that can be managed at a time.
-        Set to a negative number to allow unlimited instances.
-        :param log_to: Path to log file. If provided, task execution details are logged to the file.
+    def __post_init__(self, log_to: str) -> None:
+        if not self.name:
+            self.name = f"{self.__class__.__name__.lower()}{str(id(self))[-6:]}"
 
-        Task execution details are always written to the console. Create a subclass and set `log_to_console` to False
-        to disable writing to the console.
-        """
-        from .tasks import ScheduledTask
-        if not isinstance(max_duplicates, int):
-            raise TypeError("Max instances must be an integer")
-        
-        self.name: str = name or f"{self.__class__.__name__.lower()}{str(id(self))[-6:]}"
-        # Used deque to allow for thread-safety and O(1) time complexity when removing tasks from the list
-        self._tasks: deque[ScheduledTask] = deque([])
-        self._futures: deque[asyncio.Future] = deque([])
-        self._continue: bool = False
-        self._loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
-        self._workthread: threading.Thread | None = None
-        self._executor: ThreadPoolExecutor = ThreadPoolExecutor(thread_name_prefix=f"{self.name}_sync_to_async_executor")
-        self.max_duplicates = max_duplicates
+        self._executor = ThreadPoolExecutor(thread_name_prefix=f"{self.name}_sync_to_async_executor")
         self.logger = get_logger(
             name=f"{self.name}_logger",
             logfile_path=log_to,
@@ -180,26 +186,32 @@ class TaskManager:
             try:
                 # Use in case the function writes to the standard output stream in the background
                 with _RedirectStandardOutputStream():
-                    # Ensure that any exception raised by the function is caught and re-raised in the main thread
-                    f = self._loop.run_in_executor(self._executor, lambda: func(*args, **kwargs))
-                    return await f
+                    future = self._loop.run_in_executor(self._executor, lambda: func(*args, **kwargs))
+                    return await future
             except CancelledError as exc:
+                # Ensure that any exception raised by the function is caught and re-raised in the main thread
                 raise asyncio.CancelledError(exc)
             
         return async_func
     
 
-    def _make_future(self, scheduledtask) -> asyncio.Future:
+    def _make_future(self, coroutine_func, append: bool = True, *args, **kwargs) -> asyncio.Future:
         """
-        Creates and returns an `asyncio.Future` for the scheduled task.
-        Adds the future to the list of futures handled by this manager
+        Creates and returns an `asyncio.Future` that runs asynchronously in this manager's event loop
+        for a coroutine function.
+
+        :param coroutine_func: The coroutine function to create a future for. This could be a scheduled task.
+        :param append: If True and the coroutine function is a scheduled task, the future is added to the list of futures handled by this manager
         """
+        from .tasks import ScheduledTask
         # Used `run_coroutine_threadsafe` to ensure that tasks(futures) are 
         # run concurrently and in a thread-safe manner once the loop starts running
-        future = asyncio.run_coroutine_threadsafe(scheduledtask(), self._loop)
-        future.name = scheduledtask.name
-        future.id = scheduledtask.id
-        self._futures.append(future)
+        future = asyncio.run_coroutine_threadsafe(coroutine_func(*args, **kwargs), self._loop)
+
+        if append is True and isinstance(coroutine_func, ScheduledTask):
+            future.name = coroutine_func.name
+            future.id = coroutine_func.id
+            self._futures.append(future)
         return future
     
 
@@ -253,9 +265,12 @@ class TaskManager:
         return None
       
     
-    def stop(self) -> None:
+    def stop(self, wait: bool = True) -> None:
         """
         Cancel all scheduled tasks and stop the manager from executing any more tasks.
+
+        :param wait: wait for the current iteration of all tasks 
+        execution to end properly after cancel operation has been performed.
         """
         if not self.has_started:
             raise RuntimeError(f"{self.name} has not started task execution yet.\n")
@@ -265,7 +280,7 @@ class TaskManager:
         # Cancel all tasks which eventually cancels all futures before stopping loop
         # This helps avoid the warning message that is thrown by the loop when it is stopped
         for task in self.tasks:
-            task.cancel()
+            task.cancel(wait)
 
         self._loop.call_soon_threadsafe(self._loop.stop)
 
@@ -283,7 +298,7 @@ class TaskManager:
         as it indefinitely stops the manager from executing any task.
         """
         if self.is_occupied:
-            self.stop() # stop all task execution, if the manager is occupied with any
+            self.stop(wait=False) # stop all task execution, if the manager is occupied with any
 
         self._loop.close()
         self._executor.shutdown(wait=True, cancel_futures=True)
@@ -568,6 +583,7 @@ class TaskManager:
         name: Optional[str] = None,
         tags: Optional[List[str]] = None,
         execute_then_wait: bool = False,
+        save_results: bool = False,
         stop_on_error: bool = False,
         max_retries: int = 0,
         start_immediately: bool = True,
@@ -585,7 +601,8 @@ class TaskManager:
         :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
         :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
         Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
-        without retry, irrespective of `stop_on_error` or `max_retries`
+        without retry, irrespective of `stop_on_error` or `max_retries`.
+        :save_results: If True, the results of each iteration of the task's execution will be saved. 
         :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
         :param max_retries: The maximum number of times the task will be retried consecutively after an error is encountered.
         :param start_immediately: If True, the task will start immediately after creation. 
@@ -613,6 +630,9 @@ class TaskManager:
         manager = pysche.TaskManager()
         s = pysche.schedules
 
+        def speak(msg):
+            print(msg)
+
         speak = manager.newtask(s.RunAfterEvery(seconds=2), speak)
         task = speak('Hey!!')
         ```
@@ -625,6 +645,7 @@ class TaskManager:
             name=name,
             tags=tags,
             execute_then_wait=execute_then_wait,
+            save_results=save_results,
             stop_on_error=stop_on_error,
             max_retries=max_retries,
             start_immediately=start_immediately

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Optional
+from typing import Any, Optional, TextIO, final
 import datetime
 import sys
 try:
@@ -144,32 +144,32 @@ def get_current_datetime(with_tz: bool = False) -> str:
 
 
 
+@final
 class _RedirectStandardOutputStream:
     """
     Context manager that redirects all standard output streams within the block 
-    to a stream that will 'always' write to console.
+    to a stream that will 'always' write to console (stderr by default).
 
     Can be used to ensure that all output streams are written to console, even if
     the output stream is in a different thread.
     """
-    def __init__(self):
-        self.stream = None
+    def __init__(self, redirect_to: TextIO = sys.stderr):
+        self.stream = redirect_to
         return None
 
-    def __call__(self, __o: Any) -> Any:
+    def __call__(self, __o: Any, /) -> Any:
         return self.stream.write(str(__o))    
 
     def __enter__(self):
         # Store the original sys.stdout
-        self.og_stream = sys.stdout
-        # Redirect sys.stdout to the sys.stderr
-        self.stream = sys.stderr
+        self.og_stdout = sys.stdout
+        # Redirect sys.stdout to the preferred stream
         sys.stdout = self.stream
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):
         # Restore the original sys.stdout
-        sys.stdout = self.og_stream
+        sys.stdout = self.og_stdout
 
 
 

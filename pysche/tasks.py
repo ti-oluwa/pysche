@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections import deque
 import uuid
 import random
 import asyncio
@@ -10,15 +11,71 @@ try:
     import zoneinfo
 except ImportError:
     from backports import zoneinfo
+from dataclasses import dataclass, field, KW_ONLY, InitVar
+from enum import Enum
 
 from .manager import TaskManager
-from .bases import ScheduleType, Schedule
+from .bases import ScheduleType, NO_RESULT
 from .utils import get_datetime_now, underscore_string, underscore_datetime
-from .descriptors import SetOnceDescriptor, AttributeDescriptor
 from .exceptions import TaskCancelled, TaskDuplicationError, TaskError, TaskExecutionError
 
 
 
+class CallbackTrigger(Enum):
+    ERROR = "error"
+    PAUSED = "paused"
+    RESUMED = "resumed"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+    STARTED = "started"
+    STOPPED = "stopped"
+
+
+
+@dataclass(slots=True, eq=True, frozen=True)
+class TaskCallback:
+    task: ScheduledTask
+    """The task to which the callback is attached"""
+    func: Callable
+    """The function to be called"""
+    trigger: CallbackTrigger
+    """The event that triggers the callback"""
+    
+    def __call__(self, *args, **kwargs) -> None:
+        async_func = self.task.manager._make_asyncable(self.func)
+        self.task.manager._make_future(async_func, append=False, task=self.task, *args, **kwargs)
+        return None 
+    
+
+
+@dataclass(slots=True, eq=True, frozen=True)
+class TaskResult:
+    task: ScheduledTask
+    """The task that returned the result"""
+    index: int
+    """The current execution index of the task when the result was returned"""
+    value: Any
+    """The result returned by the task"""
+    date_created: datetime.datetime = field(init=False)
+    """The time the result was created"""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, 'date_created', get_datetime_now(self.task.schedule.tz))
+        return None
+
+    def __gt__(self, other: TaskResult) -> bool:
+        if not isinstance(other, TaskResult):
+            return False
+        return self.index > other.index and self.date_created > other.date_created
+
+
+
+def _generate_random_id(length: int = 6) -> str:
+    return "".join(random.choices(uuid.uuid4().hex, k=length))
+
+
+
+@dataclass(slots=True)
 class ScheduledTask:
     """
     Runs a function on a specified schedule.
@@ -40,7 +97,7 @@ class ScheduledTask:
         # Create task to run `say_goodnight` at 8pm Lagos timezone
         task = pysche.ScheduledTask(
             func=say_goodnight,
-            schedule=s.RunAt("20:00:00", "Africa/Lagos"),
+            schedule=s.RunAt("20:00:00", tz="Africa/Lagos"),
             manager=manager,
             kwargs={'to': 'Tolu'},
             tags=["greeting"],
@@ -57,63 +114,73 @@ class ScheduledTask:
         main()
     ```
     """
-    id = SetOnceDescriptor(str)
-    name = AttributeDescriptor(str)
-    manager = SetOnceDescriptor(TaskManager)
-    schedule = SetOnceDescriptor(Schedule)
-    func = SetOnceDescriptor(validators=[asyncio.iscoroutinefunction])
-    args = AttributeDescriptor(tuple, default=())
-    kwargs = AttributeDescriptor(dict, default={})
-    execute_then_wait = AttributeDescriptor(bool, default=False)
-    stop_on_error = AttributeDescriptor(bool, default=False)
-    max_retries = AttributeDescriptor(int, default=0)
-    tags = AttributeDescriptor(list, default=[])
-    started_at = SetOnceDescriptor(datetime.datetime, default=None)
-    _is_active = AttributeDescriptor(bool, default=False)
-    _is_paused = AttributeDescriptor(bool, default=False)
-    _failed = AttributeDescriptor(bool, default=False)
-    _errors = AttributeDescriptor(list, default=[])
-    _last_executed_at = AttributeDescriptor(datetime.datetime, default=None)
+    func: Callable
+    """The function to be scheduled."""
+    schedule: ScheduleType
+    """The schedule to run the task on."""
+    manager: TaskManager
+    """The manager to execute the task."""
 
-    def __init__(
-        self,
-        func: Callable,
-        schedule: ScheduleType,
-        manager: TaskManager,
-        *,
-        args: Optional[Tuple[Any, ...]] = None,
-        kwargs: Optional[Dict[str, Any]] = None,
-        name: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        execute_then_wait: bool = False,
-        stop_on_error: bool = False,
-        max_retries: int = 0,
-        start_immediately: bool = True,
-    ) -> None:
-        """
-        Create a new scheduled task.
+    # keyword-only arguments
+    _: KW_ONLY
+    args: Tuple[Any, ...] = field(default_factory=tuple)
+    """The arguments to be passed to the scheduled function."""
+    kwargs: Dict[str, Any] = field(default_factory=dict)
+    """The keyword arguments to be passed to the scheduled function."""
+    name: Optional[str] = None
+    """The preferred name for the task. If not specified, the name of the function will be used."""
+    tags: List[str] = field(default_factory=list)
+    """A list of tags to attach to the task. Tags can be used to group tasks together."""
+    execute_then_wait: bool = field(default=False)
+    """
+    If True, the function will be dry run first before applying the schedule.
+    Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
+    without retry, irrespective of `stop_on_error` or `max_retries`.
+    """
+    save_results: bool = field(default=False)
+    """
+    If True, the results of each iteration of the task's execution will be saved. 
+    This is only applicable if the task returns a value.
+    """
+    stop_on_error: bool = field(default=False)
+    """If True, the task will stop running when an error is encountered during its execution."""
+    max_retries: int = field(default=0)
+    """The maximum number of times the task will be retried consecutively after an error is encountered."""
+    start_immediately: InitVar[bool] = field(default=True)
+    """
+    If True, the task will start immediately after creation. 
+    This is only applicable if the manager is already running.
+    Otherwise, task execution will start when the manager starts executing tasks.
+    """
 
-        :param func: The function to be scheduled.
-        :param schedule: The schedule to run the task on.
-        :param manager: The manager to execute the task.
-        :param args: The arguments to be passed to the scheduled function.
-        :param kwargs: The keyword arguments to be passed to the scheduled function.
-        :param name: The preferred name for the task. If not specified, the name of the function will be used.
-        :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
-        :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
-        Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
-        without retry, irrespective of `stop_on_error` or `max_retries`
-        :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
-        :param max_retries: The maximum number of times the task will be retried consecutively after an error is encountered.
-        :param start_immediately: If True, the task will start immediately after creation. 
-        This is only applicable if the manager is already running.
-        Otherwise, task execution will start when the manager starts executing tasks.
-        """
-        self.id = "".join(random.choices(uuid.uuid4().hex, k=6))
-        self.manager = manager
-        func = self._wrap_func_for_time_stats(func)
-        self.func = self.manager._make_asyncable(func)
-        self.name = name or self.func.__name__
+    # Internal attributes
+    id: str = field(init=False, default_factory=_generate_random_id)
+    """A unique identifier for this task"""
+    started_at: datetime.datetime = field(default=None, init=False)
+    """The time the task was allowed to start execution"""
+    callbacks: List[TaskCallback] = field(default_factory=list, init=False)
+    """A list of `TaskCallback`s to be executed when a specific event occurs during the task's execution."""
+    results: deque[TaskResult] = field(default_factory=deque, init=False)
+    """A deque of results returned from each iteration of execution of this tasks."""
+    _is_active: bool = field(default=False, init=False)
+    """True if task has been scheduled for execution and has started been executed."""
+    _is_paused: bool = field(default=False, init=False)
+    """True if further execution of an active task is currently suspended."""
+    _failed: bool = field(default=False, init=False)
+    """True if task execution failed at some point"""
+    _errors: List[Exception] = field(default_factory=list, init=False)
+    """A list of errors that occurred during the task's execution."""
+    _last_executed_at: datetime.datetime = field(default=None, init=False)
+    """The last time this task was executed (in the timezone in which the task was scheduled)"""
+    _execution_count: int = field(default=0, init=False)
+    """The number of times the task has been executed (successfully or not) since it started."""
+
+    def __post_init__(self, start_immediately: bool) -> None:
+        if not self.name:
+            self.name = self.func.__name__
+        
+        stats_wrapped_func = self._wrap_func_for_time_stats(self.func)
+        self.func = self.manager._make_asyncable(stats_wrapped_func)
 
         if abs(self.manager.max_duplicates) == self.manager.max_duplicates: # If positive
             siblings = self.manager.get_tasks(self.name)
@@ -121,24 +188,12 @@ class ScheduledTask:
                 raise TaskDuplicationError(
                     f"'{self.manager.name}' can only manage {self.manager.max_duplicates} duplicates of '{self.name}'."
                 )
-        
-        if args is not None:
-            self.args = args
-        if kwargs is not None:
-            self.kwargs = kwargs
-        if tags is not None: 
-            self.tags = tags
 
-        self.execute_then_wait = execute_then_wait
-        self.stop_on_error = stop_on_error
-        self.max_retries = max_retries
-        self.schedule = schedule
         self.manager._tasks.append(self)
         if start_immediately:
             self.start()
         return None
-    
-    
+
     @property
     def is_active(self) -> bool:
         """
@@ -179,6 +234,10 @@ class ScheduledTask:
         """Returns the last time this task was executed (in the timezone in which the task was scheduled)"""
         return self._last_executed_at
 
+    @property
+    def execution_count(self) -> int:
+        """The number of times the task has been executed (successfully or not) since it started."""
+        return self._execution_count
     
     @property
     def status(self):
@@ -201,9 +260,9 @@ class ScheduledTask:
         Get all tasks with a particular tag using `manager.get_tasks('<tag_name>')`
         """
         if tag not in self.tags:
-            self.tags = [*self.tags, tag]
+            self.tags.append(tag)
         return None
-    
+
 
     def remove_tag(self, tag: str, /):
         """Remove a tag from the task"""
@@ -221,6 +280,7 @@ class ScheduledTask:
         """
         log_detail = f"{underscore_string(self.manager.name)}({underscore_string(self.name)})\t{msg}"
         self.manager.log(log_detail, **kwargs)
+
         if exception:
             kwargs.pop("level", None)
             self.manager.log("An exception occurred: ", level="DEBUG", exc_info=1, **kwargs)
@@ -248,42 +308,61 @@ class ScheduledTask:
                     self._is_active = True
 
                 try:
-                    await schedule_func(*self.args, **self.kwargs)
+                    result = await schedule_func(*self.args, **self.kwargs)
                 except (
                     SystemExit, KeyboardInterrupt, 
                     asyncio.CancelledError, RuntimeError
                 ):
                     break
-                except TaskCancelled:
+
+                except TaskCancelled as exc:
+                    if exc.args:
+                        self.log(f"Task cancellation requested: {exc.args[0]}\n", level="INFO")
                     self.cancel()
                     break
+
                 except Exception as exc:
+                    self._execution_count += 1
                     self._errors.append(exc)
                     self.log(f"{exc}\n", level="ERROR", exception=True)
+                    self.run_callbacks(CallbackTrigger.ERROR)
 
                     if self.stop_on_error is True or err_count >= self.max_retries:
                         self._failed = True
                         self._is_active = False
                         self.log("Task execution failed.\n", level="CRITICAL")
+                        self.run_callbacks(CallbackTrigger.FAILED)
                         break
                     
                     err_count += 1
                     self.log(f"Retrying task execution. Retries remaining: {self.max_retries - err_count}\n")
                     continue
+
                 else:
+                    self._execution_count += 1
+                    # Ensures that the maximum allowed retries is reset 
+                    # peradventure an error has occurred before, but it was resolved.
                     err_count = 0
+                    if self.save_results is True and result is not NO_RESULT:
+                        task_result = TaskResult(self, self.execution_count, result)
+                        self.results.append(task_result)
                     continue
+
+        except Exception as exc:
+            self._errors.append(exc)
         finally:
             # If task exits loop, task has stopped executing
             if self.is_active:
                 self.log("Task execution stopped.\n")
                 self._is_active = False
+                self.run_callbacks(CallbackTrigger.STOPPED)
         return None
 
     
     def __repr__(self) -> str:
-        kwargs = [f"{k}={v}" for k, v in self.kwargs.items()]
-        params = ', '.join((*self.args, *kwargs))
+        kwargs = [ f"{k}={v}" for k, v in self.kwargs.items() ]
+        args = [ str(arg) for arg in self.args ]
+        params = ', '.join((*args, *kwargs))
         return f"<{self.__class__.__name__} '{self.status}' name='{self.name}' func={self.func.__name__}({params})>"
     
 
@@ -308,9 +387,10 @@ class ScheduledTask:
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> Any:
             self.log("Executing task...\n")
-            start_timestamp = time.time()
+            start_timestamp = time.perf_counter()
             r = func(*args, **kwargs)
-            self.log(f"Task execution completed in {time.time() - start_timestamp :.4f} seconds.\n")
+            end_timestamp = time.perf_counter()
+            self.log(f"Task execution completed in {end_timestamp - start_timestamp:.8f} seconds.\n")
             return r
         
         return wrapper
@@ -334,6 +414,8 @@ class ScheduledTask:
             while not self.is_active:
                 continue
         self.started_at = get_datetime_now(self.schedule.tz)
+        self.log("Task execution started.\n")
+        self.run_callbacks(CallbackTrigger.STARTED)
         return None
         
 
@@ -361,6 +443,7 @@ class ScheduledTask:
         
         self._is_paused = True
         self.log("Task execution paused.\n")
+        self.run_callbacks(CallbackTrigger.PAUSED)
         return None
     
 
@@ -371,6 +454,7 @@ class ScheduledTask:
             return
         self._is_paused = False
         self.log("Task execution resumed.\n")
+        self.run_callbacks(CallbackTrigger.RESUMED)
         return None
     
 
@@ -455,6 +539,7 @@ class ScheduledTask:
         if wait is True:
             self.join()
         self.log("Task cancelled.\n")
+        self.run_callbacks(CallbackTrigger.CANCELLED)
         return None
 
 
@@ -490,9 +575,50 @@ class ScheduledTask:
         return self.manager.run_on(datetime, self.cancel, tz=tz, task_name=f"cancel_{self.name}_on_{underscore_datetime(datetime)}")
 
 
-    def add_callback(self, callback: Callable, trigger: str = "error"):
-        pass
+    def add_callback(self, callback_func: Callable, trigger: str | CallbackTrigger = CallbackTrigger.ERROR) -> None:
+        """
+        Add a callback to the task. Callbacks are functions whose execution are 
+        triggered when a task encounters a specific event, while the task is being executed.
 
+        :param callback_func: The function to be called.
+        :param trigger: The event that triggers the callback. 
+        The event can be one of 'error', 'paused', 'resumed', 'cancelled', 'failed', 'started', 'stopped'.
+        """
+        trigger = CallbackTrigger(trigger)
+        callback = TaskCallback(self, callback_func, trigger)
+        self.callbacks.append(callback)
+        return None
+
+
+    def get_callbacks(self, trigger: str | CallbackTrigger) -> List[TaskCallback]:
+        """
+        Get all callbacks for a specific event trigger
+
+        :param trigger: The event that triggers the callback. 
+        The event can be one of 'error', 'paused', 'resumed', 'cancelled', 'failed', 'started', 'stopped'.
+        """
+        trigger = CallbackTrigger(trigger)
+        return list(filter(lambda cb: cb.task == self and cb.trigger == trigger, self.callbacks))
+
+
+    def run_callbacks(self, trigger: str | CallbackTrigger, *args, **kwargs) -> None:
+        """
+        Run all callbacks for a specific event trigger
+
+        :param trigger: The event that triggers the callback. 
+        The event can be one of 'error', 'paused', 'resumed', 'cancelled', 'failed', 'started', 'stopped'.
+        """
+        trigger = CallbackTrigger(trigger)
+        for callback in self.get_callbacks(trigger):
+            callback(*args, **kwargs)
+        return None
+
+
+    def get_results(self) -> List[TaskResult]:
+        """
+        Returns an ordered list of results returned from each iteration of execution of this tasks.
+        """
+        return list(self.results)
 
 
 
@@ -504,6 +630,7 @@ def task(
     name: Optional[str] = None,
     tags: Optional[List[str]] = None,
     execute_then_wait: bool = False,
+    save_results: bool = False,
     stop_on_error: bool = False,
     max_retries: int = 0,
     start_immediately: bool = True,
@@ -518,7 +645,8 @@ def task(
     :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
     :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
     Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
-    without retry, irrespective of `stop_on_error` or `max_retries`
+    without retry, irrespective of `stop_on_error` or `max_retries`.
+    :param save_results: If True, the results of each iteration of the task's execution will be saved.
     :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
     :param max_retries: The maximum number of times the task will be retried consecutively after an error is encountered.
     :param start_immediately: If True, the task will start immediately after creation. 
@@ -530,6 +658,7 @@ def task(
         name=name,
         tags=tags,
         execute_then_wait=execute_then_wait,
+        save_results=save_results,
         stop_on_error=stop_on_error,
         max_retries=max_retries,
         start_immediately=start_immediately,
@@ -572,6 +701,7 @@ def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Ca
         name: Optional[str] = None,
         tags: Optional[List[str]] = None,
         execute_then_wait: bool = False,
+        save_results: bool = False,
         stop_on_error: bool = False,
         max_retries: int = 0,
         start_immediately: bool = True,
@@ -581,6 +711,7 @@ def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Ca
             name=name,
             tags=tags,
             execute_then_wait=execute_then_wait,
+            save_results=save_results,
             stop_on_error=stop_on_error,
             max_retries=max_retries,
             start_immediately=start_immediately,

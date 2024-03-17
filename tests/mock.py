@@ -25,3 +25,7 @@ def delay_print_hello_world(seconds: int):
 
 def raise_exception():
     raise Exception("This is an exception")
+
+
+def generic_callback(task, *args, **kwargs):
+    print(task.name)

@@ -3,10 +3,10 @@ import datetime
 import unittest
 
 from pysche.schedules import RunAfterEvery
-from pysche.tasks import ScheduledTask
+from pysche.tasks import ScheduledTask, TaskCallback, CallbackTrigger
 from pysche.manager import TaskManager
 from pysche.exceptions import TaskExecutionError
-from tests.mock import count_to_ten, raise_exception, print_helloworld
+from tests.mock import count_to_ten, raise_exception, print_helloworld, generic_callback
 
 
 
@@ -345,6 +345,50 @@ class TestScheduledTask(unittest.TestCase):
         cancel_task.join()
         self.assertTrue(task.cancelled)
         del task
+
+
+    def test_add_callback(self):
+        task = ScheduledTask(
+            count_to_ten,
+            schedule=RunAfterEvery(seconds=1),
+            manager=self.manager,
+            start_immediately=True
+        )
+
+        task.add_callback(generic_callback)
+        self.assertTrue(len(task.callbacks) == 1)
+        self.assertIsInstance(task.callbacks[0], TaskCallback)
+        self.assertTrue(task.callbacks[0].task == task)
+        self.assertTrue(task.callbacks[0].func == generic_callback)
+        self.assertTrue(task.callbacks[0].trigger == CallbackTrigger.ERROR)
+
+        with self.assertRaises(ValueError):
+            task.add_callback(generic_callback, "invalid_trigger")
+
+
+    def test_get_callbacks(self):
+        task = ScheduledTask(
+            count_to_ten,
+            schedule=RunAfterEvery(seconds=1),
+            manager=self.manager,
+            start_immediately=True
+        )
+        self.assertTrue(task.get_callbacks(CallbackTrigger.ERROR) == [])
+        self.assertTrue(task.get_callbacks(CallbackTrigger.PAUSED) == [])
+        self.assertTrue(task.get_callbacks(CallbackTrigger.CANCELLED) == [])
+
+        task.add_callback(generic_callback, CallbackTrigger.ERROR)
+        task.add_callback(generic_callback, CallbackTrigger.PAUSED)
+        task.add_callback(generic_callback, CallbackTrigger.CANCELLED)
+        task.add_callback(generic_callback, CallbackTrigger.PAUSED)
+
+        self.assertEqual(len(task.get_callbacks(CallbackTrigger.ERROR)), 1)
+        self.assertEqual(len(task.get_callbacks(CallbackTrigger.PAUSED)), 2)
+        self.assertEqual(len(task.get_callbacks(CallbackTrigger.CANCELLED)), 1)
+
+        with self.assertRaises(ValueError):
+            task.get_callbacks("invalid_trigger")
+
 
 
 

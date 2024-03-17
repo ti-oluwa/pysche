@@ -26,6 +26,7 @@ class AbstractBaseSchedule(ABC):
         name: Optional[str] = None,
         tags: Optional[List[str]] = None,
         execute_then_wait: bool = False,
+        save_results: bool = False,
         stop_on_error: bool = False,
         max_retries: int = 0,
         start_immediately: bool = True
@@ -38,7 +39,8 @@ class AbstractBaseSchedule(ABC):
         :param tags: A list of tags to attach to the task. Tags can be used to group tasks together.
         :param execute_then_wait: If True, the function will be dry run first before applying the schedule.
         Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
-        without retry, irrespective of `stop_on_error` or `max_retries`
+        without retry, irrespective of `stop_on_error` or `max_retries`.
+        :param save_results: If True, the results of each task execution will be saved.
         :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
         :param max_retries: The maximum number of times the task will be retried consecutively after an error is encountered.
         :param start_immediately: If True, the task will start immediately after creation. 
@@ -59,6 +61,7 @@ class AbstractBaseSchedule(ABC):
                     name=name,
                     tags=tags,
                     execute_then_wait=execute_then_wait,
+                    save_results=save_results,
                     stop_on_error=stop_on_error,
                     max_retries=max_retries,
                     start_immediately=start_immediately,
@@ -95,6 +98,8 @@ class AbstractBaseSchedule(ABC):
         pass
 
 
+NO_RESULT = object()
+
 
 class Schedule(AbstractBaseSchedule):
     """
@@ -110,7 +115,7 @@ class Schedule(AbstractBaseSchedule):
     NOTE: A Schedule instance can be used for multiple tasks. Therefore, because of this,
     the next execution time of the tasks based on the schedule is not available.
     """
-    parent = SetOnceDescriptor(AbstractBaseSchedule)
+    parent = SetOnceDescriptor(AbstractBaseSchedule, default=None)
     tz = SetOnceDescriptor(zoneinfo.ZoneInfo)
     wait_duration = SetOnceDescriptor(datetime.timedelta)
 
@@ -157,8 +162,8 @@ class Schedule(AbstractBaseSchedule):
             
             if await schedule_is_due() is True:
                 task._last_executed_at = get_datetime_now(self.tz)
-                await task.func(*args, **kwargs)
-            return
+                return await task.func(*args, **kwargs)
+            return NO_RESULT
 
         schedule_func.__name__ = task.name
         schedule_func.__qualname__ = task.name
@@ -206,12 +211,15 @@ class Schedule(AbstractBaseSchedule):
     
 
     def __hash__(self) -> int:
+        # Schedules with the same representation should have the same hash
         return hash(repr(self))
     
 
     def __eq__(self, other: ScheduleType) -> bool:
         if not isinstance(other, Schedule):
             return False
+        # Schedules with the same representation should be considered equal
+        # since they will both work the same way
         return repr(self) == repr(other)
 
 
