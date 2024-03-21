@@ -115,9 +115,27 @@ class Schedule(AbstractBaseSchedule):
     NOTE: A Schedule instance can be used for multiple tasks. Therefore, because of this,
     the next execution time of the tasks based on the schedule is not available.
     """
+    _removable_str_prefix = "run_"
+    """
+    This indicates a prefix that can be removed from the string representation of a schedule.
+    It usually utilized when generating a string representation of a schedule clause.
+
+    By default, the __str__ method assumes that the string representation schedules take the form "run_<schedule_name>".
+    Hence, the default behavior is to remove the prefix "run_" from the string representation of a schedule when it is a
+    child schedule in a schedule clause.
+
+    So, if your schedule subclass' `as_string` method returns a string representation that does not start with "run_",
+    you should set this attribute to the removeable prefix of the string representation of the schedule.
+    """
     parent = SetOnceDescriptor(AbstractBaseSchedule, default=None)
+    """The schedule this schedule is chained to. If not specified, the schedule will be a standalone schedule."""
     tz = SetOnceDescriptor(zoneinfo.ZoneInfo)
+    """
+    The timezone to use for the schedule. If not specified, the timezone of the parent schedule will be used.
+    If there is no parent schedule, the machine/local timezone will be used.
+    """
     wait_duration = SetOnceDescriptor(datetime.timedelta)
+    """The wait duration to use for the schedule."""
 
     def __init__(self, **kwargs):
         """
@@ -177,42 +195,66 @@ class Schedule(AbstractBaseSchedule):
 
         Example:
         ```python
-        run_in_march_from_mon_to_fri_at_12_30pm = RunInMonth(month=3).from_weekday__to(_from=0, _to=4).at("12:30:00")
+        import pysche
+
+        s = psyche.schedules
+        run_in_march_from_mon_to_fri_at_12_30pm = s.run_in_month(month=3).from_weekday__to(_from=0, _to=4).at("12:30:00")
 
         print(run_in_march_from_mon_to_fri_at_12_30pm.get_ancestors())
-        # [RunInMonth(month=3), RunFromWeekday__To(_from=0, _to=4)]
+        # >>> [run_in_month(month=3), run_from_weekday__to(_from=0, _to=4)]
         """
         ancestors = []
-        if self.parent:
-            ancestors.append(self.parent)
-            ancestors.extend(self.parent.get_ancestors())
-        ancestors.reverse()
+        schedule = self
+        while schedule.parent:
+            ancestors.append(schedule.parent)
+            schedule = schedule.parent
+
+        if ancestors:
+            ancestors.reverse()
         return ancestors
     
     
     def as_string(self) -> str:
-        attrs = []
-        for k, v in self.__dict__.items():
+        attrs_dict = self.__dict__.copy()
+        attrs_dict.pop("tz", None)
+        attrs_list = []
+        for k, v in attrs_dict.items():
             if k != "parent":
-                attrs.append(f"{k}={v}")
-        return f"{self.__class__.__name__.lower()}({', '.join(attrs)})"
-
+                attrs_list.append(f"{k}={v}")
+        
+        if self.tz and (not self.parent or self.tz != self.parent.tz):
+            # if this is a standalone schedule, or this is the first schedule in a schedule clause, 
+            # or the tzinfo of this schedule is different from its parent's, add the tzinfo attribute
+            attrs_list.append(f"tz='{self.tz}'")
+        return f"{self.__class__.__name__.lower()}({', '.join(attrs_list)})"
+    
 
     def __repr__(self) -> str:
-        """Returns a representation of the schedule."""
+        return self.as_string()
+
+
+    def __str__(self) -> str:
+        """Returns a string representation of the schedule including its parent(s) if any."""
+        self_representation = self.as_string()
         if self.parent:
             # If the schedule has a parent(s) return the representation of the parent(s) and the schedule
             # joined together in the same order as they are chained.
-            ancestors_representations = [ repr(ancestor) for ancestor in self.get_ancestors() ]
-            return f"{'.'.join(ancestors_representations)}.{self.as_string()}"
+            parents_representations = []
+            for index, ancestor in enumerate(self.get_ancestors()):
+                parent_representation: str = ancestor.as_string()
+                if index != 0:
+                    parents_representations.append(parent_representation.removeprefix(self._removable_str_prefix or "run_"))
+                    continue
+                parents_representations.append(parent_representation)
+            return f"{'.'.join(parents_representations)}.{self_representation.removeprefix(self._removable_str_prefix or "run_")}"
         
         # Just return the representation of the schedule.
-        return self.as_string()
+        return self_representation
     
 
     def __hash__(self) -> int:
         # Schedules with the same representation should have the same hash
-        return hash(repr(self))
+        return hash(str(self))
     
 
     def __eq__(self, other: ScheduleType) -> bool:
@@ -220,7 +262,7 @@ class Schedule(AbstractBaseSchedule):
             return False
         # Schedules with the same representation should be considered equal
         # since they will both work the same way
-        return repr(self) == repr(other)
+        return str(self) == str(other)
 
 
 

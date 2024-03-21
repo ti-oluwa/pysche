@@ -71,7 +71,7 @@ class TaskResult:
 
 
 def _generate_random_id(length: int = 6) -> str:
-    return "".join(random.choices(uuid.uuid4().hex, k=length))
+    return "".join(random.choices(uuid.uuid4().hex, k=length)).upper()
 
 
 
@@ -97,7 +97,7 @@ class ScheduledTask:
         # Create task to run `say_goodnight` at 8pm Lagos timezone
         task = pysche.ScheduledTask(
             func=say_goodnight,
-            schedule=s.RunAt("20:00:00", tz="Africa/Lagos"),
+            schedule=s.run_at("20:00:00", tz="Africa/Lagos"),
             manager=manager,
             kwargs={'to': 'Tolu'},
             tags=["greeting"],
@@ -278,7 +278,7 @@ class ScheduledTask:
         :param msg: The message to be logged.
         :param exception: If True, the message will be logged as an exception.
         """
-        log_detail = f"{underscore_string(self.manager.name)}({underscore_string(self.name)})\t{msg}"
+        log_detail = f"{self.__class__.__name__}('{underscore_string(self.name)}', id='{self.id}', manager='{underscore_string(self.manager.name)}') >>> {msg}"
         self.manager.log(log_detail, **kwargs)
 
         if exception:
@@ -363,7 +363,7 @@ class ScheduledTask:
         kwargs = [ f"{k}={v}" for k, v in self.kwargs.items() ]
         args = [ str(arg) for arg in self.args ]
         params = ', '.join((*args, *kwargs))
-        return f"<{self.__class__.__name__} '{self.status}' name='{self.name}' func={self.func.__name__}({params})>"
+        return f"<{self.__class__.__name__} '{self.status}' name='{self.name}' id='{self.id}' func={self.func.__name__}({params})>"
     
 
     def __hash__(self) -> int:
@@ -680,16 +680,28 @@ def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Ca
 
     s = psyche.schedules
     manager = pysche.TaskManager(name="my_manager")
-    task_for_manager = pysche.make_task_decorator(my_manager)
+    task_for_manager = pysche.make_task_decorator_for_manager(my_manager)
 
-    @task_for_manager(s.RunAfterEvery(seconds=10))
+    @task_for_manager(s.run_afterevery(seconds=10), ...)
     def function_one():
         pass
         
     
-    @task_for_manager(s.RunAt("20:00:00"))
+    @task_for_manager(s.run_at("20:00:00"), ...)
     def function_two():
         pass
+        
+    
+    def main():
+        manager.start() 
+
+        task_one = function_one()
+        task_two = function_two()
+
+        manager.join()
+
+    if __name__ = "__main__":
+        main()
     ```
     """
     task_decorator_for_manager = functools.partial(task, manager=manager)

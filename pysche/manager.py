@@ -64,7 +64,7 @@ class TaskManager:
     """
 
     # Used deque to allow for thread-safety and O(1) time complexity when removing tasks from the list
-    _tasks: deque['tasks.ScheduledTask'] = field(init=False, default_factory=deque)
+    _tasks: deque = field(init=False, default_factory=deque)
     """A list of scheduled tasks that are currently being managed."""
     _futures: deque[asyncio.Future]  = field(init=False, default_factory=deque)
     """A list of futures that from the scheduled tasks being managed."""
@@ -132,7 +132,9 @@ class TaskManager:
     @property
     def tasks(self):
         """Returns a list of scheduled tasks that are currently being managed"""
-        return list(filter(lambda task: task.manager == self, self._tasks))
+        from .tasks import ScheduledTask
+        tasks: List[ScheduledTask] = list(filter(lambda task: task.manager == self, self._tasks))
+        return tasks
     
     @property
     def errors(self) -> Dict[str, List[Exception]]:
@@ -238,7 +240,11 @@ class TaskManager:
             raise RuntimeError(f"{self.name} has already started task execution.\n")
         
         self._continue = True # allows all ScheduleTasks to run
-        self._workthread = threading.Thread(target=self._start_execution, name=f"{self.name}_workthread", daemon=True)
+        self._workthread = threading.Thread(
+            target=self._start_execution, 
+            name=f"{self.name}_workthread", 
+            daemon=True
+        )
         self._workthread.start()
         if self.tasks:
             # If there are any tasks being managed wait for manager to get busy with them
@@ -354,7 +360,7 @@ class TaskManager:
         This can make it easier to identify the task in logs in the case of errors.
         :return: The created task
         """
-        from .schedules import RunAfterEvery
+        from .schedules import run_afterevery
         from .tasks import ScheduledTask
         # Wraps function such that the function runs once and then the task is cancelled
         @functools.wraps(func)
@@ -365,7 +371,7 @@ class TaskManager:
         
         task = ScheduledTask(
             func=wrapped_func,
-            schedule=RunAfterEvery(seconds=delay),
+            schedule=run_afterevery(seconds=delay),
             manager=self,
             args=args,
             kwargs=kwargs,
@@ -407,7 +413,7 @@ class TaskManager:
             raise ValueError("datetime cannot be in the past")
         timedelta = dt - now
         
-        from .schedules import RunAfterEvery
+        from .schedules import run_afterevery
         from .tasks import ScheduledTask
         @functools.wraps(func)
         def wrapped_func(*args, **kwargs) -> Any:
@@ -417,7 +423,7 @@ class TaskManager:
         
         task = ScheduledTask(
             func=wrapped_func,
-            schedule=RunAfterEvery(seconds=timedelta.total_seconds()),
+            schedule=run_afterevery(seconds=timedelta.total_seconds()),
             manager=self,
             args=args,
             kwargs=kwargs,
@@ -453,7 +459,7 @@ class TaskManager:
         This can make it easier to identify the task in logs in the case of errors.
         :return: The created task
         """
-        from .schedules import RunAt
+        from .schedules import run_at
         from .tasks import ScheduledTask
         @functools.wraps(func)
         def wrapped_func(*args, **kwargs) -> Any:
@@ -463,7 +469,7 @@ class TaskManager:
         
         task = ScheduledTask(
             func=wrapped_func,
-            schedule=RunAt(time=time, tz=tz),
+            schedule=run_at(time=time, tz=tz),
             manager=self,
             args=args,
             kwargs=kwargs,
@@ -616,7 +622,7 @@ class TaskManager:
         manager = pysche.TaskManager()
         s = pysche.schedules
 
-        @manager.newtask(s.RunAfterEvery(seconds=2))
+        @manager.newtask(s.run_afterevery(seconds=2))
         def speak(msg):
             print(msg)
 
@@ -633,7 +639,7 @@ class TaskManager:
         def speak(msg):
             print(msg)
 
-        speak = manager.newtask(s.RunAfterEvery(seconds=2), speak)
+        speak = manager.newtask(s.run_afterevery(seconds=2), speak)
         task = speak('Hey!!')
         ```
         """
@@ -641,7 +647,7 @@ class TaskManager:
 
         task_decorator_for_manager = make_task_decorator_for_manager(self)
         func_decorator = task_decorator_for_manager(
-            schedule,
+            schedule=schedule,
             name=name,
             tags=tags,
             execute_then_wait=execute_then_wait,
