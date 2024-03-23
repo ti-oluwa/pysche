@@ -1,6 +1,7 @@
 import datetime
 import re
 from typing import Any, Optional
+import zoneinfo
 
 from .manager import TaskManager
 from .bases import Schedule, ScheduleType
@@ -252,17 +253,25 @@ class run_from__to(AfterEveryMixin, Schedule):
     
 
     def is_due(self) -> bool:
-        time_now = get_datetime_now(tzinfo=self.tz).time().replace(tzinfo=self.tz) # Update naive time returned by .time() to aware time
+        def _construct_mock_datetime_with_time(time: str, tzinfo: Optional[zoneinfo.ZoneInfo] = None) -> datetime.datetime:
+            mock_dt_str = f"2000-01-01 {time}"
+            return parse_datetime(mock_dt_str, tzinfo)
+        
+        time_now_str_in_machine_tz = get_datetime_now().strftime("%H:%M:%S")
+        mock_dt_with_time_now = _construct_mock_datetime_with_time(time_now_str_in_machine_tz)
+        mock_dt_with_from_time = _construct_mock_datetime_with_time(self._from.strftime("%H:%M:%S"), self.tz)
+        mock_dt_with_to_time = _construct_mock_datetime_with_time(self._to.strftime("%H:%M:%S"), self.tz)
+
         if self._from < self._to:
             # E.g; If self._from='04:00:00' and self._to='08:00:00', then we can check if the time (x),
             # lies between the range (x: '04:00:00' <= x <= '08:00:00')
-            is_due = time_now >= self._from and time_now <= self._to
+            is_due = (mock_dt_with_time_now >= mock_dt_with_from_time) and (mock_dt_with_time_now <= mock_dt_with_to_time)
         else:
             # E.g; If self._from='14:00:00' and self._to='00:00:00', then we can check if the time (x),
             # satisfies any of the two conditions; 
             # -> x >= self._from
             # -> x <= self._to
-            is_due = time_now >= self._from or time_now <= self._to
+            is_due = (mock_dt_with_time_now >= mock_dt_with_from_time) or (mock_dt_with_time_now <= mock_dt_with_to_time)
 
         if self.parent:
             return self.parent.is_due() and is_due

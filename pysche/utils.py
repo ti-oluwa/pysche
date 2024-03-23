@@ -39,8 +39,12 @@ def parse_time(time: str, tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo) -> dateti
         raise TypeError(f"Expected time to be of type str not {type(time).__name__}")
     
     split = time.split(":")
-    if len(split) != 3:
-        raise ValueError("Time must be in the format, 'HH:MM:SS'") 
+    length = len(split)
+    if length != 3:
+        if length == 2:
+            split.append("00")
+        else:
+            raise ValueError("Time must be in the format, 'HH:MM' or 'HH:MM:SS'") 
         
     hour, minute, second = split
     tzinfo = tzinfo or get_datetime_now().tzinfo

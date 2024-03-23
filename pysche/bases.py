@@ -153,7 +153,7 @@ class Schedule(AbstractBaseSchedule):
         self.tz = zoneinfo.ZoneInfo(tz) if tz and isinstance(tz, str) else tz
         # If timezone is not set, use the timezone of the parent schedule phrase
         if not self.tz and self.parent:
-            if getattr(self.parent, "tz", None):
+            if self.parent.tz is not None:
                 self.tz = self.parent.tz
 
         # If timezone is still not set, use the machine/local timezone
