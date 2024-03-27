@@ -5,18 +5,19 @@ class null:
     """Sentinel object to indicate that no value was provided."""
     pass
 
-NULL = null()
+NOT_SET = null()
 T = TypeVar("T")
 D = TypeVar('D')
 
 
 class AttributeDescriptor(Generic[T, D]):
     """Implements a descriptor for an attribute of a class."""
+
     def __init__(
         self, 
         attr_type: Optional[Type[T]] = None, 
         *,
-        default: D = NULL,
+        default: D = NOT_SET,
         validators: Optional[List[Callable[[Any], Any]]] = None
     ) -> None:
         """
@@ -97,6 +98,7 @@ class SetOnceDescriptor(AttributeDescriptor[T, D]):
     """
     Descriptor that allows an attribute to be set to a 'not-None' value only once on an instance.
     """
+
     def __set__(self, instance: Any, value: T) -> None:
         """
         Set the attribute value on the instance.

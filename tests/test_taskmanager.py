@@ -7,7 +7,7 @@ import os
 import datetime
 
 from pysche.manager import TaskManager
-from pysche.schedules import RunAfterEvery
+from pysche.schedules import run_afterevery
 from pysche.tasks import ScheduledTask
 from pysche.exceptions import UnregisteredTask
 from tests.mock import print_current_time, print_helloworld, raise_exception
@@ -44,7 +44,7 @@ class TestTaskManager(unittest.TestCase):
         manager = TaskManager()
         task = ScheduledTask(
             func=print_helloworld,
-            schedule=RunAfterEvery(seconds=10),
+            schedule=run_afterevery(seconds=10),
             manager=manager
         )
         self.assertFalse(manager._continue)
@@ -75,7 +75,7 @@ class TestTaskManager(unittest.TestCase):
         manager = TaskManager()
         task = ScheduledTask(
             func=print_helloworld,
-            schedule=RunAfterEvery(seconds=10),
+            schedule=run_afterevery(seconds=10),
             manager=manager
         )
         self.assertFalse(manager._continue)
@@ -100,7 +100,7 @@ class TestTaskManager(unittest.TestCase):
         manager = TaskManager()
         task = ScheduledTask(
             func=print_helloworld,
-            schedule=RunAfterEvery(seconds=10),
+            schedule=run_afterevery(seconds=10),
             manager=manager
         )
         self.assertIsInstance(manager._get_futures(task.name), list)
@@ -114,7 +114,7 @@ class TestTaskManager(unittest.TestCase):
         manager = TaskManager()
         task = ScheduledTask(
             func=print_helloworld,
-            schedule=RunAfterEvery(seconds=10),
+            schedule=run_afterevery(seconds=10),
             manager=manager
         )
         self.assertIsInstance(manager._get_future(task.id), Future)
@@ -127,7 +127,7 @@ class TestTaskManager(unittest.TestCase):
         manager = TaskManager()
         task = ScheduledTask(
             func=print_helloworld,
-            schedule=RunAfterEvery(seconds=10),
+            schedule=run_afterevery(seconds=10),
             manager=manager
         )
         self.assertIsInstance(manager.get_task(task.id), ScheduledTask)
@@ -140,7 +140,7 @@ class TestTaskManager(unittest.TestCase):
         manager = TaskManager()
         task = ScheduledTask(
             func=print_helloworld,
-            schedule=RunAfterEvery(seconds=10),
+            schedule=run_afterevery(seconds=10),
             manager=manager
         )
         task.add_tag("test-tag")
@@ -175,7 +175,7 @@ class TestTaskManager(unittest.TestCase):
         manager = TaskManager()
         task = ScheduledTask(
             func=print_helloworld,
-            schedule=RunAfterEvery(seconds=10),
+            schedule=run_afterevery(seconds=10),
             manager=manager
         )
         self.assertTrue(manager.is_managing(task.id))
@@ -331,7 +331,7 @@ class TestTaskManager(unittest.TestCase):
     def test_newtask(self):
         manager = TaskManager()
         manager.start()
-        func = manager.newtask(RunAfterEvery(seconds=3))(raise_exception)
+        func = manager.newtask(run_afterevery(seconds=3))(raise_exception)
         task = func()
         self.assertTrue(task.is_active)
         task.join()

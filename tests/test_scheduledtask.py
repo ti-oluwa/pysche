@@ -2,7 +2,7 @@ import asyncio
 import datetime
 import unittest
 
-from pysche.schedules import RunAfterEvery
+from pysche.schedules import run_afterevery
 from pysche.tasks import ScheduledTask, TaskCallback, CallbackTrigger
 from pysche.manager import TaskManager
 from pysche.exceptions import TaskExecutionError
@@ -21,21 +21,21 @@ class TestScheduledTask(unittest.TestCase):
     def test_init(self):
         task1 = ScheduledTask(
             count_to_ten,
-            schedule=RunAfterEvery(seconds=5),
+            schedule=run_afterevery(seconds=5),
             manager=self.manager,
             name="count_to_ten_every_5_seconds",
             start_immediately=False
         )
         task2 = ScheduledTask(
             print_helloworld,
-            schedule=RunAfterEvery(seconds=5),
+            schedule=run_afterevery(seconds=5),
             manager=self.manager,
             start_immediately=True
         )
 
         self.assertIsInstance(task1, ScheduledTask)
         self.assertEqual(task1.name, "count_to_ten_every_5_seconds")
-        self.assertEqual(task1.schedule, RunAfterEvery(seconds=5))
+        self.assertEqual(task1.schedule, run_afterevery(seconds=5))
         self.assertEqual(task1.manager, self.manager)
         self.assertFalse(task1.is_active)
 
@@ -50,7 +50,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_add_tag(self):
         task = ScheduledTask(
             raise_exception,
-            schedule=RunAfterEvery(seconds=5),
+            schedule=run_afterevery(seconds=5),
             manager=self.manager,
             tags=["tag1", "tag2"],
         )
@@ -62,7 +62,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_remove_tag(self):
         task = ScheduledTask(
             raise_exception,
-            schedule=RunAfterEvery(seconds=5),
+            schedule=run_afterevery(seconds=5),
             manager=self.manager,
             tags=["tag1", "tag2"],
         )
@@ -77,7 +77,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_log(self):
         task = ScheduledTask(
             raise_exception,
-            schedule=RunAfterEvery(seconds=5),
+            schedule=run_afterevery(seconds=5),
             manager=self.manager,
             tags=["tag1", "tag2"],
         )
@@ -90,7 +90,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_call(self):
         task = ScheduledTask(
             raise_exception,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
         )
         task_coroutine = task()
@@ -106,12 +106,12 @@ class TestScheduledTask(unittest.TestCase):
     def test_equality(self):
         task1 = ScheduledTask(
             raise_exception,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
         )
         task2 = ScheduledTask(
             raise_exception,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
         )
 
@@ -123,7 +123,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_start(self):
         task = ScheduledTask(
             print_helloworld,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
             start_immediately=False
         )
@@ -151,7 +151,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_join(self):
         task = ScheduledTask(
             raise_exception,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
             start_immediately=True
         )
@@ -164,7 +164,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_pause(self):
         task = ScheduledTask(
             count_to_ten,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
             start_immediately=True
         )
@@ -201,7 +201,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_resume(self):
         task = ScheduledTask(
             raise_exception,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
             start_immediately=True
         )
@@ -219,7 +219,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_cancel(self):
         task = ScheduledTask(
             raise_exception,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
         )
         self.assertTrue(task.is_active)
@@ -232,7 +232,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_pause_after(self):
         task = ScheduledTask(
             count_to_ten,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
             start_immediately=True
         )
@@ -246,7 +246,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_pause_until(self):
         task = ScheduledTask(
             count_to_ten,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
             start_immediately=True
         )
@@ -261,7 +261,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_pause_for(self):
         task = ScheduledTask(
             count_to_ten,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
             start_immediately=True
         )
@@ -276,7 +276,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_pause_at(self):
         task = ScheduledTask(
             count_to_ten,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
             start_immediately=True
         )
@@ -291,7 +291,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_pause_on(self):
         task = ScheduledTask(
             count_to_ten,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
             start_immediately=True
         )
@@ -306,7 +306,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_cancel_after(self):
         task = ScheduledTask(
             count_to_ten,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
             start_immediately=True
         )
@@ -320,7 +320,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_cancel_at(self):
         task = ScheduledTask(
             count_to_ten,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
             start_immediately=True
         )
@@ -335,7 +335,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_cancel_on(self):
         task = ScheduledTask(
             count_to_ten,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
             start_immediately=True
         )
@@ -350,7 +350,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_add_callback(self):
         task = ScheduledTask(
             count_to_ten,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
             start_immediately=True
         )
@@ -369,7 +369,7 @@ class TestScheduledTask(unittest.TestCase):
     def test_get_callbacks(self):
         task = ScheduledTask(
             count_to_ten,
-            schedule=RunAfterEvery(seconds=1),
+            schedule=run_afterevery(seconds=1),
             manager=self.manager,
             start_immediately=True
         )

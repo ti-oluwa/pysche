@@ -10,15 +10,14 @@ except ImportError:
 from abc import ABC, abstractmethod
 
 from .manager import TaskManager
-from .utils import utcoffset_to_zoneinfo, get_datetime_now
+from ._utils import utcoffset_to_zoneinfo, get_datetime_now
 from .descriptors import SetOnceDescriptor
 
 
 
 class AbstractBaseSchedule(ABC):
-    """
-    Abstract base class for all schedules.
-    """
+    """Abstract base class for all schedules."""
+
     def __call__(
         self, 
         *, 
@@ -27,6 +26,7 @@ class AbstractBaseSchedule(ABC):
         tags: Optional[List[str]] = None,
         execute_then_wait: bool = False,
         save_results: bool = False,
+        resultset_size: Optional[int] = None,
         stop_on_error: bool = False,
         max_retries: int = 0,
         start_immediately: bool = True
@@ -41,6 +41,8 @@ class AbstractBaseSchedule(ABC):
         Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
         without retry, irrespective of `stop_on_error` or `max_retries`.
         :param save_results: If True, the results of each task execution will be saved.
+        :param resultset_size: The maximum number of results to save. If the number of results exceeds this value, the oldest results will be removed.
+        If `save_results` is False, this will be ignored. If this is not specified, the default value will be 10.
         :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
         :param max_retries: The maximum number of times the task will be retried consecutively after an error is encountered.
         :param start_immediately: If True, the task will start immediately after creation. 
@@ -62,6 +64,7 @@ class AbstractBaseSchedule(ABC):
                     tags=tags,
                     execute_then_wait=execute_then_wait,
                     save_results=save_results,
+                    resultset_size=resultset_size,
                     stop_on_error=stop_on_error,
                     max_retries=max_retries,
                     start_immediately=start_immediately,
@@ -115,6 +118,7 @@ class Schedule(AbstractBaseSchedule):
     NOTE: A Schedule instance can be used for multiple tasks. Therefore, because of this,
     the next execution time of the tasks based on the schedule is not available.
     """
+    
     _removable_str_prefix = "run_"
     """
     This indicates a prefix that can be removed from the string representation of a schedule.
@@ -164,7 +168,6 @@ class Schedule(AbstractBaseSchedule):
 
     def make_schedule_func_for_task(self, scheduledtask) -> Callable[..., Coroutine[Any, Any, None]]:
         from .tasks import ScheduledTask
-        
         task: ScheduledTask = scheduledtask
         schedule_is_due: Callable[..., bool] = task.manager._make_asyncable(self.is_due)
 

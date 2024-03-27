@@ -15,7 +15,7 @@ def get_random_rm_char_id(id_limit: int = 826) -> str:
     return str(random.randint(0, id_limit))
 
 
-@manager.newtask(run_from_2am_to_9pm.afterevery(seconds=20), max_retries=3, save_results=False)
+@manager.newtask(run_from_2am_to_9pm.afterevery(seconds=20), max_retries=2, save_results=True)
 def fetch_rm_character(char_id: str) -> Any | None:
     char_url = f"https://rickandmortyapi.com/api/character/{char_id}"
     with httpx.Client() as client:
@@ -46,6 +46,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # benchmark_task_manager_creation(cost=1000)
     main()
 

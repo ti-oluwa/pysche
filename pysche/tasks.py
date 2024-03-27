@@ -16,7 +16,7 @@ from enum import Enum
 
 from .manager import TaskManager
 from .bases import ScheduleType, NO_RESULT
-from .utils import get_datetime_now, underscore_string, underscore_datetime
+from ._utils import get_datetime_now, underscore_string, underscore_datetime, generate_random_id
 from .exceptions import TaskCancelled, TaskDuplicationError, TaskError, TaskExecutionError
 
 
@@ -34,12 +34,19 @@ class CallbackTrigger(Enum):
 
 @dataclass(slots=True, eq=True, frozen=True)
 class TaskCallback:
+    """Encapsulates a callback to be executed when a specific event occurs during the task's execution."""
+
     task: ScheduledTask
     """The task to which the callback is attached"""
     func: Callable
     """The function to be called"""
     trigger: CallbackTrigger
     """The event that triggers the callback"""
+
+    def __post_init__(self) -> None:
+        if not callable(self.func):
+            raise ValueError(f"Callback function must be callable. Got {self.func!r}.")
+        return None
     
     def __call__(self, *args, **kwargs) -> None:
         async_func = self.task.manager._make_asyncable(self.func)
@@ -50,6 +57,8 @@ class TaskCallback:
 
 @dataclass(slots=True, eq=True, frozen=True)
 class TaskResult:
+    """Encapsulates a result returned by a task after execution."""
+
     task: ScheduledTask
     """The task that returned the result"""
     index: int
@@ -67,11 +76,6 @@ class TaskResult:
         if not isinstance(other, TaskResult):
             return False
         return self.index > other.index and self.date_created > other.date_created
-
-
-
-def _generate_random_id(length: int = 6) -> str:
-    return "".join(random.choices(uuid.uuid4().hex, k=length)).upper()
 
 
 
@@ -114,6 +118,7 @@ class ScheduledTask:
         main()
     ```
     """
+
     func: Callable
     """The function to be scheduled."""
     schedule: ScheduleType
@@ -142,6 +147,13 @@ class ScheduledTask:
     If True, the results of each iteration of the task's execution will be saved. 
     This is only applicable if the task returns a value.
     """
+    resultset_size: Optional[int] = None
+    """
+    The maximum number of results to save. If the number of results exceeds this value, 
+    the oldest results will be removed. If `save_results` is False, this will be ignored.
+
+    Also If this is not specified, the default value will be 10.
+    """
     stop_on_error: bool = field(default=False)
     """If True, the task will stop running when an error is encountered during its execution."""
     max_retries: int = field(default=0)
@@ -154,14 +166,14 @@ class ScheduledTask:
     """
 
     # Internal attributes
-    id: str = field(init=False, default_factory=_generate_random_id)
+    id: str = field(init=False, default_factory=generate_random_id)
     """A unique identifier for this task"""
     started_at: datetime.datetime = field(default=None, init=False)
     """The time the task was allowed to start execution"""
     callbacks: List[TaskCallback] = field(default_factory=list, init=False)
     """A list of `TaskCallback`s to be executed when a specific event occurs during the task's execution."""
-    results: deque[TaskResult] = field(default_factory=deque, init=False)
-    """A deque of results returned from each iteration of execution of this tasks."""
+    resultset: Optional[deque[TaskResult]]= field(default=None, init=False)
+    """A deque containing results returned from each iteration of execution of this tasks."""
     _is_active: bool = field(default=False, init=False)
     """True if task has been scheduled for execution and has started been executed."""
     _is_paused: bool = field(default=False, init=False)
@@ -172,7 +184,7 @@ class ScheduledTask:
     """A list of errors that occurred during the task's execution."""
     _last_executed_at: datetime.datetime = field(default=None, init=False)
     """The last time this task was executed (in the timezone in which the task was scheduled)"""
-    _execution_count: int = field(default=0, init=False)
+    _exc_count: int = field(default=0, init=False)
     """The number of times the task has been executed (successfully or not) since it started."""
 
     def __post_init__(self, start_immediately: bool) -> None:
@@ -188,9 +200,14 @@ class ScheduledTask:
                 raise TaskDuplicationError(
                     f"'{self.manager.name}' can only manage {self.manager.max_duplicates} duplicates of '{self.name}'."
                 )
-
         self.manager._tasks.append(self)
-        if start_immediately:
+
+        if self.save_results is True:
+            if self.resultset_size is not None and self.resultset_size < 1:
+                raise ValueError("resultset_size must be greater than 0 if save_results is True.")
+            self.resultset = deque(maxlen=self.resultset_size or 10)
+
+        if start_immediately is True:
             self.start()
         return None
 
@@ -237,7 +254,7 @@ class ScheduledTask:
     @property
     def execution_count(self) -> int:
         """The number of times the task has been executed (successfully or not) since it started."""
-        return self._execution_count
+        return self._exc_count
     
     @property
     def status(self):
@@ -280,7 +297,6 @@ class ScheduledTask:
         """
         log_detail = f"{self.__class__.__name__}('{underscore_string(self.name)}', id='{self.id}', manager='{underscore_string(self.manager.name)}') >>> {msg}"
         self.manager.log(log_detail, **kwargs)
-
         if exception:
             kwargs.pop("level", None)
             self.manager.log("An exception occurred: ", level="DEBUG", exc_info=1, **kwargs)
@@ -322,7 +338,7 @@ class ScheduledTask:
                     break
 
                 except Exception as exc:
-                    self._execution_count += 1
+                    self._exc_count += 1
                     self._errors.append(exc)
                     self.log(f"{exc}\n", level="ERROR", exception=True)
                     self.run_callbacks(CallbackTrigger.ERROR)
@@ -339,13 +355,13 @@ class ScheduledTask:
                     continue
 
                 else:
-                    self._execution_count += 1
+                    self._exc_count += 1
                     # Ensures that the maximum allowed retries is reset 
                     # peradventure an error has occurred before, but it was resolved.
                     err_count = 0
                     if self.save_results is True and result is not NO_RESULT:
                         task_result = TaskResult(self, self.execution_count, result)
-                        self.results.append(task_result)
+                        self.resultset.append(task_result)
                     continue
 
         except Exception as exc:
@@ -401,7 +417,7 @@ class ScheduledTask:
         Start task execution. You cannot start a failed or cancelled task
 
         The task will not start if it is already active, paused, failed or cancelled.
-        Also, the task will not start until its manager has been started.
+        Also, the task will not start until its manager has started.
         """
         if any((self.is_active, self.is_paused, self.failed, self.cancelled)):
             raise TaskExecutionError(f"Cannot start '{self.name}'. '{self.name}' is {self.status}.")
@@ -483,7 +499,7 @@ class ScheduledTask:
         """
         Pauses this task and creates a new task to resume this task at specified time. 
 
-        :param time: The time to resume this task. Time should be in the format 'HH:MM:SS'
+        :param time: The time to resume this task. Time should be in the format 'HH:MM' or 'HH:MM:SS'
         :return: The created task
         """
         self.pause()
@@ -557,7 +573,7 @@ class ScheduledTask:
         """
         Creates a new task that cancels this task at a specified time
 
-        :param time: The time to cancel this task. Time should be in the format 'HH:MM:SS'
+        :param time: The time to cancel this task. Time should be in the format 'HH:MM' or 'HH:MM:SS'
         :return: The created task
         '"""
         return self.manager.run_at(time, self.cancel, task_name=f"cancel_{self.name}_at_{underscore_datetime(time)}")
@@ -618,7 +634,7 @@ class ScheduledTask:
         """
         Returns an ordered list of results returned from each iteration of execution of this tasks.
         """
-        return list(self.results)
+        return list(self.resultset) if self.resultset else []
 
 
 
@@ -631,6 +647,7 @@ def task(
     tags: Optional[List[str]] = None,
     execute_then_wait: bool = False,
     save_results: bool = False,
+    resultset_size: Optional[int] = None,
     stop_on_error: bool = False,
     max_retries: int = 0,
     start_immediately: bool = True,
@@ -647,6 +664,8 @@ def task(
     Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
     without retry, irrespective of `stop_on_error` or `max_retries`.
     :param save_results: If True, the results of each iteration of the task's execution will be saved.
+    :param resultset_size: The maximum number of results to save. If the number of results exceeds this value, the oldest results will be removed.
+    If `save_results` is False, this will be ignored. If this is not specified, the default value will be 10.
     :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
     :param max_retries: The maximum number of times the task will be retried consecutively after an error is encountered.
     :param start_immediately: If True, the task will start immediately after creation. 
@@ -659,6 +678,7 @@ def task(
         tags=tags,
         execute_then_wait=execute_then_wait,
         save_results=save_results,
+        resultset_size=resultset_size,
         stop_on_error=stop_on_error,
         max_retries=max_retries,
         start_immediately=start_immediately,
@@ -714,6 +734,7 @@ def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Ca
         tags: Optional[List[str]] = None,
         execute_then_wait: bool = False,
         save_results: bool = False,
+        resultset_size: Optional[int] = None,
         stop_on_error: bool = False,
         max_retries: int = 0,
         start_immediately: bool = True,
@@ -724,6 +745,7 @@ def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Ca
             tags=tags,
             execute_then_wait=execute_then_wait,
             save_results=save_results,
+            resultset_size=resultset_size,
             stop_on_error=stop_on_error,
             max_retries=max_retries,
             start_immediately=start_immediately,

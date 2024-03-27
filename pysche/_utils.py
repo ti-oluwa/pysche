@@ -6,6 +6,8 @@ try:
     import zoneinfo
 except ImportError:
     from backports import zoneinfo
+import random
+import uuid
 
 
 def utcoffset_to_zoneinfo(offset: datetime.timedelta) -> zoneinfo.ZoneInfo:
@@ -30,10 +32,10 @@ def utcoffset_to_zoneinfo(offset: datetime.timedelta) -> zoneinfo.ZoneInfo:
 
 def parse_time(time: str, tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo) -> datetime.time:
     """
-    Parse time string in format "%H:%M:%S" to datetime.time object
+    Parse time string in format  "%H:%M" or "%H:%M:%S" to datetime.time object
 
     :param time: The time string.
-    :param tzinfo: The timezone info.
+    :param tzinfo: The timezone info. If not provided, the timezone of the machine is used.
     """
     if not isinstance(time, str):
         raise TypeError(f"Expected time to be of type str not {type(time).__name__}")
@@ -60,22 +62,23 @@ def construct_datetime_from_time(time: datetime.time) -> datetime.datetime:
     """
     Return the current date plus the specified time.
     The datetime object is converted to the timezone of the datetime.time object provided.
+    If no timezone is provided, the timezone of the machine is used.
 
     :param time: The time.
     """
-    tzinfo = time.tzinfo or get_datetime_now().tzinfo
-    return get_datetime_now(tzinfo).replace(
+    return get_datetime_now(time.tzinfo).replace(
         hour=time.hour,
         minute=time.minute,
         second=time.second,
         microsecond=0,
-    )
+    ).astimezone()
 
 
 def parse_datetime(dt: str, tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> datetime.datetime:
     """
     Parse a datetime string in "%Y-%m-%d %H:%M:%S" format into a datetime.datetime object.
-    The datetime object is converted to the specified timezone on return.
+    The datetime object is converted to the specified timezone on return. If no timezone is provided,
+    the timezone of the machine is used.
 
     :param dt: datetime string.
     """
@@ -157,22 +160,25 @@ class _RedirectStandardOutputStream:
     Can be used to ensure that all output streams are written to console, even if
     the output stream is in a different thread.
     """
+    __slots__ = ("stream", "og_stdout")
+
     def __init__(self, redirect_to: TextIO = sys.stderr):
         self.stream = redirect_to
+        self.og_stdout = None
         return None
 
     def __call__(self, __o: Any, /) -> Any:
         return self.stream.write(str(__o))    
 
     def __enter__(self):
-        # Store the original sys.stdout
+        # Store the original sys.stdout when entering the block
         self.og_stdout = sys.stdout
         # Redirect sys.stdout to the preferred stream
         sys.stdout = self.stream
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):
-        # Restore the original sys.stdout
+        # Restore the original sys.stdout when exiting the block
         sys.stdout = self.og_stdout
 
 
@@ -197,3 +203,7 @@ def underscore_datetime(__dt: str, /):
     """
     replaceables = (" ", ":", "-", ".", "/", "\\")
     return underscore_string(__dt, replaceables)
+
+
+def generate_random_id(length: int = 6) -> str:
+    return "".join(random.choices(uuid.uuid4().hex, k=length)).upper()

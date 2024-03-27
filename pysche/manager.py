@@ -12,7 +12,7 @@ from concurrent.futures import CancelledError, ThreadPoolExecutor
 from dataclasses import KW_ONLY, dataclass, field, InitVar
 
 
-from .utils import (
+from ._utils import (
     _RedirectStandardOutputStream, parse_datetime, 
     get_datetime_now, underscore_datetime
 )
@@ -50,6 +50,7 @@ class TaskManager:
         main()
     ```
     """
+
     name: Optional[str] = None
     """The name of the task manager. Defaults to the class name and a unique ID."""
     _: KW_ONLY
@@ -286,7 +287,7 @@ class TaskManager:
         # Cancel all tasks which eventually cancels all futures before stopping loop
         # This helps avoid the warning message that is thrown by the loop when it is stopped
         for task in self.tasks:
-            task.cancel(wait)
+            task.cancel(wait=wait)
 
         self._loop.call_soon_threadsafe(self._loop.stop)
 
@@ -450,7 +451,7 @@ class TaskManager:
         """
         Creates a task that runs a function once at a specified time.
 
-        :param time: The time to run the function. Must be in the format 'HH:MM:SS'
+        :param time: The time to run the function. Must be in the format 'HH:MM' or 'HH:MM:SS'
         :param func: The function to run as a task
         :param tz: The timezone to use. Defaults to local timezone.
         :param args: The arguments to pass to the function
@@ -499,7 +500,7 @@ class TaskManager:
         """
         Creates a task that stops the execution of all scheduled tasks at the specified time
 
-        :param time: The time to stop the execution of all tasks. Must be in the format 'HH:MM:SS'
+        :param time: The time to stop the execution of all tasks. Must be in the format 'HH:MM' or 'HH:MM:SS'
         :return: The created task
         """
         if not self.has_started:
@@ -590,6 +591,7 @@ class TaskManager:
         tags: Optional[List[str]] = None,
         execute_then_wait: bool = False,
         save_results: bool = False,
+        resultset_size: Optional[int] = None,
         stop_on_error: bool = False,
         max_retries: int = 0,
         start_immediately: bool = True,
@@ -609,6 +611,8 @@ class TaskManager:
         Also, if this is set to True, errors encountered on dry run will be propagated and will stop the task
         without retry, irrespective of `stop_on_error` or `max_retries`.
         :save_results: If True, the results of each iteration of the task's execution will be saved. 
+        :param resultset_size: The maximum number of results to save. If the number of results exceeds this value, the oldest results will be removed.
+        If `save_results` is False, this will be ignored. If this is not specified, the default value will be 10.
         :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
         :param max_retries: The maximum number of times the task will be retried consecutively after an error is encountered.
         :param start_immediately: If True, the task will start immediately after creation. 
@@ -644,7 +648,6 @@ class TaskManager:
         ```
         """
         from .tasks import make_task_decorator_for_manager
-
         task_decorator_for_manager = make_task_decorator_for_manager(self)
         func_decorator = task_decorator_for_manager(
             schedule=schedule,
@@ -652,6 +655,7 @@ class TaskManager:
             tags=tags,
             execute_then_wait=execute_then_wait,
             save_results=save_results,
+            resultset_size=resultset_size,
             stop_on_error=stop_on_error,
             max_retries=max_retries,
             start_immediately=start_immediately

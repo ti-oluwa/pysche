@@ -1,11 +1,13 @@
 import datetime
-import re
 from typing import Any, Optional
-import zoneinfo
+try:
+    import zoneinfo
+except ImportError:
+    from backports import zoneinfo
 
 from .manager import TaskManager
 from .bases import Schedule, ScheduleType
-from .utils import (
+from ._utils import (
     parse_datetime, MinMaxValidator as minmax,
     construct_datetime_from_time, parse_time, get_datetime_now
 )
@@ -17,10 +19,11 @@ dayofmonth_validator = minmax(1, 31)
 weekday_validator = minmax(0, 6)
 
 
-
 class run_at(Schedule):
     """Task will run at the specified time, everyday"""
+
     wait_duration = AttributeDescriptor(datetime.timedelta, default=None)
+    """The timedelta to the next occurrence of the specified time."""
     time = SetOnceDescriptor(datetime.time)
     """Time in the day when the task will run."""
 
@@ -28,7 +31,7 @@ class run_at(Schedule):
         """
         Create a schedule that will be due at the specified time, everyday.
 
-        :param time: The time to run the task. The time must be in the format, "HH:MM:SS".
+        :param time: The time to run the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
         
         Example:
         ```
@@ -97,6 +100,7 @@ class run_at(Schedule):
 
 class run_afterevery(Schedule):
     """Task will run after the specified interval, repeatedly"""
+
     def __init__(
         self,
         *, 
@@ -174,6 +178,7 @@ class run_afterevery(Schedule):
 
 class AtMixin:
     """Allows chaining of the 'at' schedule to other schedules."""
+
     def at(self: ScheduleType, time: str, **kwargs) -> run_at:
         """
         Task will run at the specified time, everyday.
@@ -186,6 +191,7 @@ class AtMixin:
 
 class AfterEveryMixin:
     """Allows chaining of the 'afterevery' schedule to other schedules."""
+
     def afterevery(
         self: ScheduleType,
         *,
@@ -222,12 +228,13 @@ class run_from__to(AfterEveryMixin, Schedule):
 
     This special schedule phrase is meant to be chained with the `afterevery` phrase.
     """
+
     def __init__(self, _from: str, _to: str, **kwargs) -> None:
         """
         Create a schedule that will only be due within the specified time frame, everyday.
 
-        :param _from: The time to start running the task. The time must be in the format, "HH:MM:SS".
-        :param _to: The time to stop running the task. The time must be in the format, "HH:MM:SS".
+        :param _from: The time to start running the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
+        :param _to: The time to stop running the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
 
         Example:
         ```
@@ -295,12 +302,13 @@ class run_from__to(AfterEveryMixin, Schedule):
 
 class From__ToMixin:
     """Allows chaining of the 'from__to' schedule to other schedules."""
+
     def from__to(self: ScheduleType, _from: str, _to: str, **kwargs) -> run_from__to:
         """
         Task will only run within the specified time frame, everyday.
 
-        :param _from: The time to start running the task. The time must be in the format, "HH:MM:SS".
-        :param _to: The time to stop running the task. The time must be in the format, "HH:MM:SS".
+        :param _from: The time to start running the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
+        :param _to: The time to stop running the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
         """
         return run_from__to(_from=_from, _to=_to, parent=self, **kwargs)
 
@@ -330,6 +338,7 @@ class TimePeriodSchedule(From__ToMixin, AtMixin, AfterEveryMixin, Schedule):
     run_on_4th_november_from_2_30_to_2_35_afterevery_5s = s.run_in_month(11).on_day_of_month(4).from__to("14:30:00", "14:35:00").afterevery(seconds=5)
     ```
     """
+
     wait_duration = SetOnceDescriptor(validators=[_ensure_value_is_null])
     """Time period schedules have no wait duration. Accessing this attribute will raise an error."""
     
@@ -365,6 +374,7 @@ class TimePeriodSchedule(From__ToMixin, AtMixin, AfterEveryMixin, Schedule):
 
 class DHMSAfterEveryMixin(AfterEveryMixin):
     """Overrides the "afterevery" method to allow only days, hours, minutes, and seconds arguments."""
+
     def afterevery(
         self: ScheduleType, 
         *, 
@@ -386,6 +396,7 @@ class DHMSAfterEveryMixin(AfterEveryMixin):
 
 class HMSAfterEveryMixin(AfterEveryMixin):
     """Overrides the "afterevery" method to allow only hours, minutes, and seconds arguments."""
+
     def afterevery(
         self: ScheduleType, 
         *, 
@@ -405,6 +416,7 @@ class HMSAfterEveryMixin(AfterEveryMixin):
 
 class run_on_weekday(HMSAfterEveryMixin, TimePeriodSchedule):
     """Task will run on the specified day of the week, every week."""
+
     weekday = SetOnceDescriptor(int, validators=[weekday_validator])
     """The day of the week (0-6) on which the task will run. 0 is Monday and 6 is Sunday."""
 
@@ -445,6 +457,7 @@ class run_on_weekday(HMSAfterEveryMixin, TimePeriodSchedule):
 
 class run_on_dayofmonth(HMSAfterEveryMixin, TimePeriodSchedule):
     """Task will run on the specified day of the month, every month."""
+
     day = SetOnceDescriptor(int, validators=[dayofmonth_validator])
     """The day of the month (1-31) on which the task will run."""
 
@@ -485,6 +498,7 @@ class run_on_dayofmonth(HMSAfterEveryMixin, TimePeriodSchedule):
 
 class OnWeekDayMixin:
     """Allows chaining of the "on_weekday" schedule to other schedules."""
+
     def on_weekday(self: ScheduleType, weekday: int, **kwargs) -> run_on_weekday:
         """
         Task will run on the specified day of the week, every week.
@@ -497,6 +511,7 @@ class OnWeekDayMixin:
 
 class OnDayOfMonthMixin:
     """Allows chaining of the "on_dayofmonth" schedule to other schedules."""
+
     def on_dayofmonth(self: ScheduleType, day: int, **kwargs) -> run_on_dayofmonth:
         """
         Task will run on the specified day of the month, every month.
@@ -516,6 +531,7 @@ class OnDayMixin(OnWeekDayMixin, OnDayOfMonthMixin):
 
 class RunFromSchedule(TimePeriodSchedule):
     """Base class for all "RunFrom..." type time period schedule."""
+
     _from = SetOnceDescriptor()
     """The start of the time period."""
     _to = SetOnceDescriptor()
@@ -532,6 +548,7 @@ class RunFromSchedule(TimePeriodSchedule):
 
 class run_from_weekday__to(HMSAfterEveryMixin, RunFromSchedule):
     """Task will only run within the specified days of the week, every week."""
+
     _from = SetOnceDescriptor(int, validators=[weekday_validator])
     """The day of the week (0-6) from which the task will run. 0 is Monday and 6 is Sunday."""
     _to = SetOnceDescriptor(int, validators=[weekday_validator])
@@ -585,6 +602,7 @@ class run_from_weekday__to(HMSAfterEveryMixin, RunFromSchedule):
 
 class run_from_dayofmonth__to(HMSAfterEveryMixin, RunFromSchedule):
     """Task will only run within the specified days of the month, every month."""
+
     _from = SetOnceDescriptor(int, validators=[dayofmonth_validator])
     """The day of the month (1-31) from which the task will run."""
     _to = SetOnceDescriptor(int, validators=[dayofmonth_validator])
@@ -638,6 +656,7 @@ class run_from_dayofmonth__to(HMSAfterEveryMixin, RunFromSchedule):
 
 class FromDayOfMonth__ToMixin:
     """Allows chaining of the "from_dayofmonth__to" schedule to other schedules"""
+
     def from_dayofmonth__to(self: ScheduleType, _from: int, _to: int, **kwargs) -> run_from_dayofmonth__to:
         """
         Task will only run within the specified days of the month, every month.
@@ -651,6 +670,7 @@ class FromDayOfMonth__ToMixin:
 
 class FromWeekDay__ToMixin:
     """Allows chaining of the "from_weekday__to" schedule to other schedules."""
+
     def from_weekday__to(self: ScheduleType, _from: int, _to: int, **kwargs) -> run_from_weekday__to:
         """
         Task will only run within the specified days of the week, every week.
@@ -671,6 +691,7 @@ class FromDay__ToMixin(FromDayOfMonth__ToMixin, FromWeekDay__ToMixin):
 
 class run_in_month(DHMSAfterEveryMixin, FromDay__ToMixin, OnDayMixin, TimePeriodSchedule):
     """Task will run in specified month of the year, every year"""
+
     month = SetOnceDescriptor(int, validators=[month_validator])
     """The month of the year (1-12) in which the task will run. 1 is January and 12 is December."""
 
@@ -715,6 +736,7 @@ class run_in_month(DHMSAfterEveryMixin, FromDay__ToMixin, OnDayMixin, TimePeriod
 
 class InMonthMixin:
     """Allows chaining of the "in_month" schedule to other schedules."""
+
     def in_month(self: ScheduleType, month: int, **kwargs) -> run_in_month:
         """
         Task will run in specified month of the year, every year.
@@ -728,6 +750,7 @@ class InMonthMixin:
 
 class run_from_month__to(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunFromSchedule):
     """Task will only run within the specified months of the year, every year."""
+
     _from = SetOnceDescriptor(int, validators=[month_validator])
     """The month of the year (1-12) from which the task will run. 1 is January and 12 is December."""
     _to = SetOnceDescriptor(int, validators=[month_validator])
@@ -782,6 +805,7 @@ class run_from_month__to(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunF
 
 class FromMonth__ToMixin:
     """Allows chaining of the "from_month__to" schedule to other schedules."""
+
     def from_month__to(self: ScheduleType, _from: int, _to: int, **kwargs) -> run_from_month__to:
         """
         Task will only run within the specified months of the year, every year.
@@ -795,6 +819,7 @@ class FromMonth__ToMixin:
 
 class run_in_year(FromMonth__ToMixin, FromDay__ToMixin, InMonthMixin, OnDayMixin, TimePeriodSchedule):
     """Task will run in specified year"""
+
     year = SetOnceDescriptor(int)
     """The year in which the task will run."""
 
@@ -835,6 +860,7 @@ class run_in_year(FromMonth__ToMixin, FromDay__ToMixin, InMonthMixin, OnDayMixin
 
 class run_from_datetime__to(InMonthMixin, OnDayMixin, FromMonth__ToMixin, FromDay__ToMixin, RunFromSchedule):
     """Task will only run within the specified date and time range."""
+
     _from = SetOnceDescriptor(str)
     """The date and time from which the task will run."""
     _to = SetOnceDescriptor(str)
