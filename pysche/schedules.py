@@ -9,15 +9,18 @@ from .manager import TaskManager
 from .bases import Schedule, ScheduleType
 from ._utils import (
     parse_datetime, MinMaxValidator as minmax,
-    construct_datetime_from_time, parse_time, get_datetime_now
+    construct_datetime_from_time, parse_time, 
+    get_datetime_now, ensure_value_is_null
 )
-from .descriptors import SetOnceDescriptor, AttributeDescriptor, null
+from .descriptors import SetOnceDescriptor, AttributeDescriptor
 
 
 month_validator = minmax(1, 12)
 dayofmonth_validator = minmax(1, 31)
 weekday_validator = minmax(0, 6)
 
+
+# ------------- BASIC SCHEDULES ----------- #
 
 class run_at(Schedule):
     """Task will run at the specified time, everyday"""
@@ -199,8 +202,7 @@ class AfterEveryMixin:
         days: int = 0,
         hours: int = 0,
         minutes: int = 0,
-        seconds: int = 0,
-        **kwargs
+        seconds: int = 0
     ) -> run_afterevery:
         """
         Task will run after specified interval, repeatedly.
@@ -217,12 +219,117 @@ class AfterEveryMixin:
             hours=hours,
             minutes=minutes,
             seconds=seconds,
-            parent=self,
-            **kwargs
+            parent=self
         )
 
 
-class run_from__to(AfterEveryMixin, Schedule):
+
+# ------------ TIME PERIOD BASED SCHEDULES -------------- #
+
+class BaseTimePeriodSchedule(AfterEveryMixin, Schedule):
+    """
+    A time period schedule is a schedule that will only be due at a specific time
+    or within a specified time frame or period. This kind of schedule has no wait period/duration, 
+    meaning it cannot be used solely to create a task. It has to be
+    chained with a schedule that has its wait period/duration defined to form a useable schedule clause.
+
+    Example:
+    ```python
+    import pysche
+
+    manager = pysche.TaskManager()
+    s = pysche.schedules
+
+    run_on_4th_november_from_2_30_to_2_35_afterevery_5s = s.run_in_month(11).on_day_of_month(4).from__to("14:30:00", "14:35:00").afterevery(seconds=5)
+    ```
+    """
+
+    wait_duration = SetOnceDescriptor(validators=[ensure_value_is_null])
+    """Time period schedules have no wait duration. Accessing this attribute will raise an error."""
+    
+    def __call__(
+        self, 
+        *, 
+        manager: TaskManager, 
+        name: Optional[str] = None, 
+        execute_then_wait: bool = False, 
+        stop_on_error: bool = False, 
+        max_retry: int = 0, 
+        start_immediately: bool = True
+    ):
+        try:
+            self.wait_duration
+        except KeyError:
+            raise ValueError(
+                f"The '{self.__class__.__name__}' schedule cannot be used solely to create a task."
+                " It has to be chained with a schedule that has it's wait duration specified to form a useable schedule clause."
+            )
+        return super().__call__(
+            manager=manager, 
+            name=name, 
+            execute_then_wait=execute_then_wait, 
+            stop_on_error=stop_on_error, 
+            max_retry=max_retry, 
+            start_immediately=start_immediately
+        )
+
+
+
+class DHMSAfterEveryMixin(AfterEveryMixin):
+    """Overrides the "afterevery" method to allow only days, hours, minutes, and seconds arguments."""
+
+    def afterevery(
+        self: ScheduleType, 
+        *, 
+        days: int = 0,
+        hours: int = 0, 
+        minutes: int = 0, 
+        seconds: int = 0
+    ) -> run_afterevery:
+        return super().afterevery(
+            days=days,
+            hours=hours, 
+            minutes=minutes, 
+            seconds=seconds
+        )
+
+
+
+class HMSAfterEveryMixin(AfterEveryMixin):
+    """Overrides the "afterevery" method to allow only hours, minutes, and seconds arguments."""
+
+    def afterevery(
+        self: ScheduleType, 
+        *, 
+        hours: int = 0, 
+        minutes: int = 0, 
+        seconds: int = 0
+    ) -> run_afterevery:
+        return super().afterevery(
+            hours=hours, 
+            minutes=minutes, 
+            seconds=seconds
+        )
+    
+
+
+class MSAfterEveryMixin(AfterEveryMixin):
+    """Overrides the "afterevery" method to allow only minutes and seconds arguments."""
+
+    def afterevery(
+        self: ScheduleType, 
+        *, 
+        minutes: int = 0, 
+        seconds: int = 0
+    ) -> run_afterevery:
+        return super().afterevery(
+            minutes=minutes, 
+            seconds=seconds
+        )
+    
+
+
+class run_from__to(MSAfterEveryMixin, BaseTimePeriodSchedule):
     """
     Task will only run within the specified time frame, everyday.
 
@@ -285,132 +392,24 @@ class run_from__to(AfterEveryMixin, Schedule):
         return is_due
 
 
-    def afterevery(
-            self,
-            *,
-            minutes: int = 0,
-            seconds: int = 0,
-            **kwargs
-        ) -> run_afterevery:
-        return super().afterevery(
-            minutes=minutes,
-            seconds=seconds,
-            **kwargs 
-        )
-
-
 
 class From__ToMixin:
     """Allows chaining of the 'from__to' schedule to other schedules."""
 
-    def from__to(self: ScheduleType, _from: str, _to: str, **kwargs) -> run_from__to:
+    def from__to(self: ScheduleType, _from: str, _to: str) -> run_from__to:
         """
         Task will only run within the specified time frame, everyday.
 
         :param _from: The time to start running the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
         :param _to: The time to stop running the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
         """
-        return run_from__to(_from=_from, _to=_to, parent=self, **kwargs)
+        return run_from__to(_from=_from, _to=_to, parent=self)
 
 
 
-def _ensure_value_is_null(value: Any) -> None:
-    """Private validator to ensure that the `wait_duration` value of a time period schedule is null."""
-    if not isinstance(value, null):
-        raise ValueError(f"Expected value to be of type '{null.__name__}', not '{type(value).__name__}'.")
-    return
-
-
-class TimePeriodSchedule(From__ToMixin, AtMixin, AfterEveryMixin, Schedule):
-    """
-    A time period schedule is a schedule that will only be due at a specific time
-    or within a specified time frame or period. This kind of schedule has no wait period/duration, 
-    meaning it cannot be used solely to create a task. It has to be
-    chained with a schedule that has its wait period/duration defined to form a useable schedule clause.
-
-    Example:
-    ```python
-    import pysche
-
-    manager = pysche.TaskManager()
-    s = pysche.schedules
-
-    run_on_4th_november_from_2_30_to_2_35_afterevery_5s = s.run_in_month(11).on_day_of_month(4).from__to("14:30:00", "14:35:00").afterevery(seconds=5)
-    ```
-    """
-
-    wait_duration = SetOnceDescriptor(validators=[_ensure_value_is_null])
-    """Time period schedules have no wait duration. Accessing this attribute will raise an error."""
-    
-    def __call__(
-        self, 
-        *, 
-        manager: TaskManager, 
-        name: Optional[str] = None, 
-        execute_then_wait: bool = False, 
-        stop_on_error: bool = False, 
-        max_retry: int = 0, 
-        start_immediately: bool = True
-    ):
-        try:
-            self.wait_duration
-        except KeyError:
-            raise ValueError(
-                f"The '{self.__class__.__name__}' schedule cannot be used solely to create a task."
-                " It has to be chained with a schedule that has it's wait duration specified to form a useable schedule clause."
-            )
-        return super().__call__(
-            manager=manager, 
-            name=name, 
-            execute_then_wait=execute_then_wait, 
-            stop_on_error=stop_on_error, 
-            max_retry=max_retry, 
-            start_immediately=start_immediately
-        )
-    
-
-
-
-
-class DHMSAfterEveryMixin(AfterEveryMixin):
-    """Overrides the "afterevery" method to allow only days, hours, minutes, and seconds arguments."""
-
-    def afterevery(
-        self: ScheduleType, 
-        *, 
-        days: int = 0,
-        hours: int = 0, 
-        minutes: int = 0, 
-        seconds: int = 0, 
-        **kwargs
-    ) -> run_afterevery:
-        return super().afterevery(
-            days=days,
-            hours=hours, 
-            minutes=minutes, 
-            seconds=seconds,
-            **kwargs
-        )
-
-
-
-class HMSAfterEveryMixin(AfterEveryMixin):
-    """Overrides the "afterevery" method to allow only hours, minutes, and seconds arguments."""
-
-    def afterevery(
-        self: ScheduleType, 
-        *, 
-        hours: int = 0, 
-        minutes: int = 0, 
-        seconds: int = 0, 
-        **kwargs
-    ) -> run_afterevery:
-        return super().afterevery(
-            hours=hours, 
-            minutes=minutes, 
-            seconds=seconds,
-            **kwargs
-        )
+class TimePeriodSchedule(From__ToMixin, AtMixin, BaseTimePeriodSchedule):
+    __doc__ = BaseTimePeriodSchedule.__doc__
+    pass
 
 
 
@@ -499,26 +498,26 @@ class run_on_dayofmonth(HMSAfterEveryMixin, TimePeriodSchedule):
 class OnWeekDayMixin:
     """Allows chaining of the "on_weekday" schedule to other schedules."""
 
-    def on_weekday(self: ScheduleType, weekday: int, **kwargs) -> run_on_weekday:
+    def on_weekday(self: ScheduleType, weekday: int) -> run_on_weekday:
         """
         Task will run on the specified day of the week, every week.
 
         :param weekday: The day of the week (0-6). 0 is Monday and 6 is Sunday.
         """
-        return run_on_weekday(weekday, parent=self, **kwargs)
+        return run_on_weekday(weekday, parent=self)
     
 
 
 class OnDayOfMonthMixin:
     """Allows chaining of the "on_dayofmonth" schedule to other schedules."""
 
-    def on_dayofmonth(self: ScheduleType, day: int, **kwargs) -> run_on_dayofmonth:
+    def on_dayofmonth(self: ScheduleType, day: int) -> run_on_dayofmonth:
         """
         Task will run on the specified day of the month, every month.
 
         :param day: The day of the month (1-31).
         """
-        return run_on_dayofmonth(day, parent=self, **kwargs)
+        return run_on_dayofmonth(day, parent=self)
 
 
 
@@ -530,7 +529,7 @@ class OnDayMixin(OnWeekDayMixin, OnDayOfMonthMixin):
 
 
 class RunFromSchedule(TimePeriodSchedule):
-    """Base class for all "RunFrom..." type time period schedule."""
+    """Base class for all "RunFrom...__to" type time period schedule."""
 
     _from = SetOnceDescriptor()
     """The start of the time period."""
@@ -657,28 +656,28 @@ class run_from_dayofmonth__to(HMSAfterEveryMixin, RunFromSchedule):
 class FromDayOfMonth__ToMixin:
     """Allows chaining of the "from_dayofmonth__to" schedule to other schedules"""
 
-    def from_dayofmonth__to(self: ScheduleType, _from: int, _to: int, **kwargs) -> run_from_dayofmonth__to:
+    def from_dayofmonth__to(self: ScheduleType, _from: int, _to: int) -> run_from_dayofmonth__to:
         """
         Task will only run within the specified days of the month, every month.
 
         :param _from: The day of the month (1-31) from which the task will run.
         :param _to: The day of the month (1-31) until which the task will run.
         """
-        return run_from_dayofmonth__to(_from=_from, _to=_to, parent=self, **kwargs)
+        return run_from_dayofmonth__to(_from=_from, _to=_to, parent=self)
 
 
 
 class FromWeekDay__ToMixin:
     """Allows chaining of the "from_weekday__to" schedule to other schedules."""
 
-    def from_weekday__to(self: ScheduleType, _from: int, _to: int, **kwargs) -> run_from_weekday__to:
+    def from_weekday__to(self: ScheduleType, _from: int, _to: int) -> run_from_weekday__to:
         """
         Task will only run within the specified days of the week, every week.
 
         :param _from: The day of the week (0-6) from which the task will run. 0 is Monday and 6 is Sunday.
         :param _to: The day of the week (0-6) until which the task will run. 0 is Monday and 6 is Sunday.
         """
-        return run_from_weekday__to(_from=_from, _to=_to, parent=self, **kwargs)
+        return run_from_weekday__to(_from=_from, _to=_to, parent=self)
 
 
 
@@ -737,13 +736,13 @@ class run_in_month(DHMSAfterEveryMixin, FromDay__ToMixin, OnDayMixin, TimePeriod
 class InMonthMixin:
     """Allows chaining of the "in_month" schedule to other schedules."""
 
-    def in_month(self: ScheduleType, month: int, **kwargs) -> run_in_month:
+    def in_month(self: ScheduleType, month: int) -> run_in_month:
         """
         Task will run in specified month of the year, every year.
 
         :param month: The month of the year (1-12). 1 is January and 12 is December.
         """
-        return run_in_month(month, parent=self, **kwargs)
+        return run_in_month(month, parent=self)
 
 
 
@@ -806,14 +805,14 @@ class run_from_month__to(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunF
 class FromMonth__ToMixin:
     """Allows chaining of the "from_month__to" schedule to other schedules."""
 
-    def from_month__to(self: ScheduleType, _from: int, _to: int, **kwargs) -> run_from_month__to:
+    def from_month__to(self: ScheduleType, _from: int, _to: int) -> run_from_month__to:
         """
         Task will only run within the specified months of the year, every year.
 
         :param _from: The month of the year (1-12) from which the task will run. 1 is January and 12 is December.
         :param _to: The month of the year (1-12) until which the task will run. 1 is January and 12 is December.
         """
-        return run_from_month__to(_from=_from, _to=_to, parent=self, **kwargs)
+        return run_from_month__to(_from=_from, _to=_to, parent=self)
   
 
 

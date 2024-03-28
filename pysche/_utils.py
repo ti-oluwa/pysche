@@ -9,6 +9,8 @@ except ImportError:
 import random
 import uuid
 
+from .descriptors import null
+
 
 def utcoffset_to_zoneinfo(offset: datetime.timedelta) -> zoneinfo.ZoneInfo:
     """
@@ -207,3 +209,10 @@ def underscore_datetime(__dt: str, /):
 
 def generate_random_id(length: int = 6) -> str:
     return "".join(random.choices(uuid.uuid4().hex, k=length)).upper()
+
+
+def ensure_value_is_null(value: Any) -> None:
+    """Private validator to ensure that the `wait_duration` value of a time period schedule is null."""
+    if not isinstance(value, null):
+        raise ValueError(f"Expected value to be of type '{null.__name__}', not '{type(value).__name__}'.")
+    return
