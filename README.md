@@ -104,9 +104,9 @@ s = pysche.schedules
 manager = pysche.TaskManager()
 
 # Run task every 20 seconds
-run_every_4min_20sec_seconds = s.run_afterevery(minutes=4, seconds=20)
+run_every_4min_20sec = s.run_afterevery(minutes=4, seconds=20)
 
-@run_every_4min_20sec_seconds(manager=manager)
+@run_every_4min_20sec(manager=manager)
 def send_message(msg: str):
     print(msg)
 ```
@@ -320,7 +320,7 @@ run_at_12pm_everyday_lagos = s.run_in_month(4, tz="Africa/Lagos").afterevery(hou
 
 #### Reuseability of schedules
 
-You do not need to create a new schedule object for each task. You can either reuse the same schedule object for multiple tasks or create a base time period based schedule and chain it with different basic schedules to create different schedules.
+You do not need to create a new schedule object for each task. You can either reuse the same schedule object for multiple tasks or create a base time period based schedule and chain it with different time period/basic schedules to create different schedules.
 
 **Option 1: Reuse the same schedule object for multiple tasks**
 
