@@ -32,6 +32,8 @@ Let's take an overview of what these mechanisms are, and the role(s) they play w
 
 Schedules are objects that are used to define the frequency, and when a scheduled task will be executed. Task managers are objects assigned the job of handling the execution and management of a scheduled task or group of scheduled tasks. Lastly, a scheduled task is an object that runs a function/job on a specified schedule.
 
+**Example:**
+
 ```python
 import pysche
 
@@ -89,13 +91,6 @@ run_at_12pm_everyday = s.run_at("12:00:00")
 @run_at_12pm_everyday(manager=manager)
 def send_message(msg: str):
     print(msg)
-
-def main():
-    manager.start()
-
-    send_message("Hello friend!")
-
-    manager.join()
 ```
 
 ##### pysche.schedules.run_afterevery
@@ -114,14 +109,6 @@ run_every_20_seconds = s.run_afterevery(seconds=20)
 @run_every_20_seconds(manager=manager)
 def send_message(msg: str):
     print(msg)
-
-def main():
-    manager.start()
-
-    task = send_message("Hello friend!")
-    print(task.schedule)
-
-    manager.join()
 ```
 
 Now that we have an overview of basic schedules, let's take a look at time period based schedules.
@@ -155,13 +142,6 @@ run_on_mondays = s.run_on_weekday(0)
 @run_on_mondays(manager=manager)
 def send_message(msg: str):
     print(msg)
-
-def main():
-    manager.start()
-
-    send_message("Hello friend!")
-
-    manager.join()
 ```
 
 ###### pysche.schedules.run_on_dayofmonth
@@ -175,13 +155,6 @@ run_on_12th_of_every_month = s.run_on_dayofmonth(12)
 @run_on_12th_of_every_month(manager=manager)
 def send_message(msg: str):
     print(msg)
-
-def main():
-    manager.start()
-
-    send_message("Hello friend!")
-
-    manager.join()
 ```
 
 ##### run_from_*__to schedules
@@ -205,13 +178,6 @@ run_from_12pm_to_2pm = s.run_from___to("12:00", "14:00")
 @run_from_12pm_to_2pm.afterevery(seconds=20)(manager=manager)
 def send_message(msg: str):
     print(msg)
-
-def main():
-    manager.start()
-
-    send_message("Hello friend!")
-
-    manager.join()
 ```
 
 ###### pysche.schedules.run_from_weekday__to
@@ -225,13 +191,6 @@ run_from_monday_to_friday = s.run_from_weekday__to(0, 4)
 @run_from_monday_to_friday.afterevery(hours=2)(manager=manager)
 def send_message(msg: str):
     print(msg)
-
-def main():
-    manager.start()
-
-    send_message("Hello friend!")
-
-    manager.join()
 ```
 
 ###### pysche.schedules.run_from_dayofmonth__to
@@ -245,13 +204,6 @@ run_from_1st_to_15th = s.run_from_dayofmonth__to(1, 15)
 @run_from_1st_to_15th.afterevery(days=1)(manager=manager)
 def send_message(msg: str):
     print(msg)
-
-def main():
-    manager.start()
-
-    send_message("Hello friend!")
-
-    manager.join()
 ```
 
 ###### pysche.schedules.run_from_month__to
@@ -265,13 +217,6 @@ run_from_january_to_march = s.run_from_month__to(1, 3)
 @run_from_january_to_march.afterevery(weeks=1)(manager=manager)
 def send_message(msg: str):
     print(msg)
-
-def main():
-    manager.start()
-
-    send_message("Hello friend!")
-
-    manager.join()
 ```
 
 ###### pysche.schedules.run_from_datetime__to
@@ -285,13 +230,6 @@ run_from_2022_01_01_12pm_to_2022_01_01_2pm = s.run_from_datetime__to("2022-01-01
 @run_from_2022_01_01_12pm_to_2022_01_01_2pm.afterevery(seconds=20)(manager=manager)
 def send_message(msg: str):
     print(msg)
-
-def main():
-    manager.start()
-
-    send_message("Hello friend!")
-
-    manager.join()
 ```
 
 ##### run_in_* schedules
@@ -313,13 +251,6 @@ run_in_january = s.run_in_month(1)
 @run_in_january.from_weekday__to(0, 4).afterevery(hours=2)(manager=manager)
 def send_message(msg: str):
     print(msg)
-
-def main():
-    manager.start()
-
-    send_message("Hello friend!")
-
-    manager.join()
 ```
 
 ###### pysche.schedules.run_in_year
@@ -333,13 +264,6 @@ run_in_2022 = s.run_in_year(2022)
 @run_in_2022.from_month__to(1, 3).afterevery(weeks=1)(manager=manager)
 def send_message(msg: str):
     print(msg)
-
-def main():
-    manager.start()
-
-    send_message("Hello friend!")
-
-    manager.join()
 ```
 
 #### Creating complex schedules; Schedules clauses
@@ -385,12 +309,40 @@ manager = pysche.TaskManager()
 run_at_12pm_everyday = s.run_at("12:00:00", tz="Africa/Lagos")
 ```
 
-The above example will run the task at 12:00:00 in the 'Africa/Lagos' timezone. Also, All time or datetime objects associated with this schedule will be in the 'Africa/Lagos' timezone(not the system timezone).
+The above example will run the task at 12:00:00 in the 'Africa/Lagos' timezone. Also, all time or datetime objects associated with this schedule will be in the 'Africa/Lagos' timezone(not the system timezone).
 
-You cannot mix timezones in a schedule. If you need to run a task in different timezones, you should create separate schedules for each timezone. The schedule chain below will not work, the timezone should only be specified once, at the beginning of the schedule chain.
+You cannot use multiple timezones in a schedule. If you need to run a task in different timezones, you should create separate schedules for each timezone. The schedule chain below will not work, the timezone should only be specified once, at the beginning of the schedule chain.
 
 ```python
 
 run_at_12pm_everyday_lagos = s.run_in_month(4, tz="Africa/Lagos").afterevery(hours=24, tz="Europe/London")
 ```
 
+#### Attributes and methods of schedules
+
+All schedules have the following attributes and methods.
+
+- `tz` (zoneinfo.ZoneInfo): The timezone of the schedule.
+- `parent` (Schedule): The parent schedule of the schedule, if any, else it returns None.
+- `wait_duration` (datetime.timedelta): The duration to wait before the schedule is due. This attribute is only accessible on basic schedules.
+Accessing this attribute on a time period based schedule will raise an AttributeError.
+
+- `is_due() -> bool`: This method is used to check if the schedule is due at the current time. It returns a boolean value.
+- `get_ancestors() -> List[Schedule]`: This method returns a list of all the parent schedules of the schedule arranged in order of hierarchy.
+That is, in a schedule chain like `run_on_weekday(0).from__to("12:00", "14:00").afterevery(minutes=12)`, the ancestors of `afterevery(minutes=12)` are `run_on_weekday(0)` and `from__to("12:00", "14:00")`.
+- `as_string() -> str`: This method returns a string representation of the schedule it is called on. Note that in a schedule clause, this returns the string representation of the basic schedule at the end of the clause.
+For example, in the schedule chain;
+
+```python
+
+run_on_monday_from_12pm_to_2pm_every_12min = s.run_on_weekday(0).from__to("12:00", "14:00").afterevery(minutes=12)
+```
+
+Calling `as_string()` on run_on_monday_from_12pm_to_2pm_every_12min will return 'run_afterevery(minutes=12)' as that is the schedule it is called on. To get the string representation of the entire schedule chain, you should do
+
+```python
+
+str(run_on_monday_from_12pm_to_2pm_every_12min)
+
+# Output: 'run_on_weekday(0, tz="<timezone>").from__to("12:00", "14:00").afterevery(minutes=12)'
+```
