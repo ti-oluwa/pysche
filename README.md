@@ -288,7 +288,7 @@ run_from_april_to_june_on_1st_and_15th_at_12pm = s.run_from_month__to(4, 6).on_d
 
 **Note that a schedule clause must always end with a basic schedule.**
 
-When schedules are chained together, the schedule preceeding a schedule in the chain is called the parent schedule, and the schedule following a schedule in the chain is called the child schedule. Given the example below, `run_from_january_to_march` is the parent schedule and `afterevery(weeks=1)` is the child schedule.
+When schedules are chained together, the schedule preceding a schedule in the chain is called the parent schedule, and the schedule following a schedule in the chain is called the child schedule. Given the example below, `run_from_january_to_march` is the parent schedule and `afterevery(weeks=1)` is the child schedule.
 
 ```python
 
@@ -318,7 +318,39 @@ You cannot use multiple timezones in a schedule. If you need to run a task in di
 run_at_12pm_everyday_lagos = s.run_in_month(4, tz="Africa/Lagos").afterevery(hours=24, tz="Europe/London")
 ```
 
-#### Attributes and methods of schedules
+#### Reuseability of schedules
+
+You do not need to create a new schedule object for each task. You can either reuse the same schedule object for multiple tasks or create a base time period based schedule and chain it with different basic schedules to create different schedules.
+
+**Option 1: Reuse the same schedule object for multiple tasks**
+
+```python
+run_on_mondays_at_12pm = s.run_on_weekday(0).at("12:00")
+
+@run_on_mondays_at_12pm(manager=manager)
+def send_message(msg: str):
+    print(msg)
+
+@run_on_mondays_at_12pm(manager=manager)
+def send_email(email: str):
+    print(email)
+```
+
+**Option 2: Create a base time period based schedule and chain it with different time period/basic schedules**
+
+```python
+run_on_mondays = s.run_on_weekday(0)
+
+@run_on_mondays.at("12:00")(manager=manager)
+def send_message(msg: str):
+    print(msg)
+
+@run_on_mondays.at("14:00")(manager=manager)
+def send_email(email: str):
+    print(email)
+```
+
+#### Schedules attributes and methods
 
 All schedules have the following attributes and methods.
 
