@@ -104,9 +104,9 @@ s = pysche.schedules
 manager = pysche.TaskManager()
 
 # Run task every 20 seconds
-run_every_20_seconds = s.run_afterevery(seconds=20)
+run_every_4min_20sec_seconds = s.run_afterevery(minutes=4, seconds=20)
 
-@run_every_20_seconds(manager=manager)
+@run_every_4min_20sec_seconds(manager=manager)
 def send_message(msg: str):
     print(msg)
 ```
@@ -115,7 +115,7 @@ Now that we have an overview of basic schedules, let's take a look at time perio
 
 #### What are Time period based schedules?
 
-Time period based schedules are used to specify a time period within/on which a task should run. There are two kinds of time period based schedules available.
+Time period based schedules are used to specify a time period within which a task should run. There are three kinds of time period based schedules available.
 
 - run_on_* schedules
 - run_from_*__to schedules
@@ -125,7 +125,7 @@ Time period based schedules are used to specify a time period within/on which a 
 
 ##### run_on_* schedules
 
-These schedules are used to specify the days a task should run. Below are the available run_on_* schedules.
+These schedules are used to specify the day a task should run. Below are the available run_on_* schedules.
 
 - `pysche.schedules.run_on_weekday`
 - `pysche.schedules.run_on_dayofmonth`
@@ -139,7 +139,7 @@ This schedule is used to specify the day of the week a task should run. It takes
 # Run task on Mondays
 run_on_mondays = s.run_on_weekday(0)
 
-@run_on_mondays(manager=manager)
+@run_on_mondays.at("23:15")(manager=manager)
 def send_message(msg: str):
     print(msg)
 ```
@@ -152,7 +152,7 @@ This schedule is used to specify the day of the month a task should run. It take
 ...
 run_on_12th_of_every_month = s.run_on_dayofmonth(12)
 
-@run_on_12th_of_every_month(manager=manager)
+@run_on_12th_of_every_month.at("2:20")(manager=manager)
 def send_message(msg: str):
     print(msg)
 ```
@@ -161,19 +161,19 @@ def send_message(msg: str):
 
 These kind of schedules are use to specify a timeframe within which a task should run. Below are the available run_from_*__to schedules.
 
-- `pysche.schedules.run_from___to`
+- `pysche.schedules.run_from__to`
 - `pysche.schedules.run_from_weekday__to`
 - `pysche.schedules.run_from_dayofmonth__to`
 - `pysche.schedules.run_from_month__to`
 - `pysche.schedules.run_from_datetime__to`
 
-###### pysche.schedules.run_from___to
+###### pysche.schedules.run_from__to
 
 This schedule is used to specify a timeframe within which a task should run. It takes in two strings representing the start and end time in the format 'HH:MM:SS' or 'HH:MM'.
 
 ```python
 ...
-run_from_12pm_to_2pm = s.run_from___to("12:00", "14:00")
+run_from_12pm_to_2pm = s.run_from__to("12:00", "14:00")
 
 @run_from_12pm_to_2pm.afterevery(seconds=20)(manager=manager)
 def send_message(msg: str):
@@ -338,7 +338,7 @@ For example, in the schedule chain;
 run_on_monday_from_12pm_to_2pm_every_12min = s.run_on_weekday(0).from__to("12:00", "14:00").afterevery(minutes=12)
 ```
 
-Calling `as_string()` on run_on_monday_from_12pm_to_2pm_every_12min will return 'run_afterevery(minutes=12)' as that is the schedule it is called on. To get the string representation of the entire schedule chain, you should do
+Calling `as_string()` on `run_on_monday_from_12pm_to_2pm_every_12min` will return 'run_afterevery(minutes=12)' as that is the schedule it is called on. To get the string representation of the entire schedule chain, you should do
 
 ```python
 
