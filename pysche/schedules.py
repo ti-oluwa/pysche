@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, Optional
+from typing import Any, Optional, List
 try:
     import zoneinfo
 except ImportError:
@@ -250,11 +250,14 @@ class BaseTimePeriodSchedule(AfterEveryMixin, Schedule):
     def __call__(
         self, 
         *, 
-        manager: TaskManager, 
-        name: Optional[str] = None, 
-        execute_then_wait: bool = False, 
-        stop_on_error: bool = False, 
-        max_retry: int = 0, 
+        manager: TaskManager,
+        name: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        execute_then_wait: bool = False,
+        save_results: bool = False,
+        resultset_size: Optional[int] = None,
+        stop_on_error: bool = False,
+        max_retries: int = 0,
         start_immediately: bool = True
     ):
         try:
@@ -267,9 +270,12 @@ class BaseTimePeriodSchedule(AfterEveryMixin, Schedule):
         return super().__call__(
             manager=manager, 
             name=name, 
+            tags=tags,
             execute_then_wait=execute_then_wait, 
+            save_results=save_results,
+            resultset_size=resultset_size,
             stop_on_error=stop_on_error, 
-            max_retry=max_retry, 
+            max_retries=max_retries, 
             start_immediately=start_immediately
         )
 
