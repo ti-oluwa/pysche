@@ -59,7 +59,7 @@ Now that we have an overview of these mechanisms. Let's take an in-depth look at
 
 ### Schedules [pysche.schedules]
 
-Schedules help us define how and when tasks should run. They are two main categories of schedules and by convention schedules start with the 'run_*' prefix e.g, 'run_at'. List below are the two main categories available.
+Schedules help us define how and when tasks should run. They are two main categories of schedules and by convention schedules start with the 'run_*' prefix e.g, 'run_at'. Listed below are the two main categories available.
 
 - Basic schedules
 - Time period based schedules
@@ -355,7 +355,7 @@ s = pysche.schedules
 manager = pysche.TaskManager()
 
 # Run task on Mondays from 12:00 to 14:00 every 12 minutes
-run_on_mondays_from_12pm_to_2pm_after_every_12min = s.run_on_weekday(0).from___to("12:00", "14:00").afterevery(minutes=12)
+run_on_mondays_from_12pm_to_2pm_after_every_12min = s.run_on_weekday(0).from__to("12:00", "14:00").afterevery(minutes=12)
 
 
 # Run task from April to June on the 15th of every month at 12:00
@@ -363,3 +363,34 @@ run_from_april_to_june_on_1st_and_15th_at_12pm = s.run_from_month__to(4, 6).on_d
 ```
 
 **Note that a schedule clause must always end with a basic schedule.**
+
+When schedules are chained together, the schedule preceeding a schedule in the chain is called the parent schedule, and the schedule following a schedule in the chain is called the child schedule. Given the example below, `run_from_january_to_march` is the parent schedule and `afterevery(weeks=1)` is the child schedule.
+
+```python
+
+run_from_january_to_march_every_1week = s.run_from_month__to(1, 3).afterevery(weeks=1)
+```
+
+#### Timezone support for schedules
+
+All schedules can take an optional timezone argument on initialization. If the timezone argument is not provided, the system timezone is used. The timezone argument must be a string representing a valid timezone.
+
+```python
+import pysche
+
+s = pysche.schedules
+manager = pysche.TaskManager()
+
+# Run task at 12:00:00 in the 'Africa/Lagos' timezone
+run_at_12pm_everyday = s.run_at("12:00:00", tz="Africa/Lagos")
+```
+
+The above example will run the task at 12:00:00 in the 'Africa/Lagos' timezone. Also, All time or datetime objects associated with this schedule will be in the 'Africa/Lagos' timezone(not the system timezone).
+
+You cannot mix timezones in a schedule. If you need to run a task in different timezones, you should create separate schedules for each timezone. The schedule chain below will not work, the timezone should only be specified once, at the beginning of the schedule chain.
+
+```python
+
+run_at_12pm_everyday_lagos = s.run_in_month(4, tz="Africa/Lagos").afterevery(hours=24, tz="Europe/London")
+```
+
