@@ -109,13 +109,17 @@ class TaskManager:
     
     def __eq__(self, other: TaskManager) -> bool:
         if not isinstance(other, TaskManager):
-            return False
+            raise NotImplementedError(
+                f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}"
+            )
         return hash(self) == hash(other)
     
 
     def __gt__(self, other: TaskManager) -> bool:
         if not isinstance(other, TaskManager):
-            return False
+            raise NotImplementedError(
+                f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}"
+            )
         return len(self.tasks) > len(other.tasks)
     
     

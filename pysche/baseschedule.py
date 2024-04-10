@@ -132,12 +132,27 @@ class Schedule(AbstractBaseSchedule):
 
     def __eq__(self, other: Union[ScheduleType, object]) -> bool:
         if not isinstance(other, Schedule):
-            return False
+            raise NotImplementedError(
+                f"Cannot compare {self.__class__.__name__} and {other.__class__.__name__}"
+            )
         # Schedules with the same representation should be considered equal
         # since they will both work the same way
         return str(self) == str(other)
 
 
+    def __add__(self, other: ScheduleType):
+        """Combines two schedules into a schedule group."""
+        from .schedulegroups import group_schedules
+        try:
+            return group_schedules(self, other)
+        except ValueError:
+            raise ValueError(
+                f"Cannot add {self.__class__.__name__} and {other.__class__.__name__}"
+            )
+
+    # Allows the addition of schedules using the `+` operator
+    __iadd__ = __add__
+    __radd__ = __add__
 
 
 # Type variable for Schedule and its subclasses

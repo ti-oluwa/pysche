@@ -6,7 +6,7 @@ from .abc import AbstractBaseSchedule
 from .baseschedule import ScheduleType
 from .descriptors import SetOnceDescriptor
 from ._utils import validate_schedules_iterable
-
+from .exceptions import InsufficientArguments
 
 
 class ScheduleGroup(AbstractBaseSchedule):
@@ -27,7 +27,7 @@ class ScheduleGroup(AbstractBaseSchedule):
         :param schedules: The schedules to group. Duplicate schedules will be removed.
         """
         if len(schedules) < 2:
-            raise ValueError("At least two schedules are required to create a schedule group.")
+            raise InsufficientArguments("At least two schedules are required to create a schedule group.")
         self.schedules = tuple(set(schedules))
         return None
     
@@ -59,12 +59,37 @@ class ScheduleGroup(AbstractBaseSchedule):
 
     def __eq__(self, other: Union[ScheduleGroup, object]) -> bool:
         if not isinstance(other, ScheduleGroup):
-            return False
+            raise NotImplementedError(
+                f"Cannot compare {self.__class__.__name__} and {other.__class__.__name__}"
+            )
         return self.schedules == other.schedules
     
 
     def __hash__(self) -> int:
         return hash(self.schedules)
+    
+
+    def __add__(self, other: ScheduleType) -> ScheduleGroup:
+        """Adds a new schedule to the group."""
+        try:
+            return self.__class__(*self.schedules, other)
+        except ValueError:
+            raise ValueError(
+                f"Cannot add {self.__class__.__name__} and {other.__class__.__name__}"
+            )
+    
+    __radd__ = __add__
+    __iadd__ = __add__
+
+
+    def __sub__(self, other: ScheduleType) -> ScheduleGroup:
+        """Removes a schedule from the group."""
+        try:
+            return self.__class__(*filter(lambda schedule: schedule != other, self.schedules))
+        except InsufficientArguments:
+            raise ValueError("Subtraction resulted in an invalid schedule group.")
+    
+    __isub__ = __sub__
         
 
 

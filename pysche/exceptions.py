@@ -50,3 +50,8 @@ class TaskCancelled(TaskError):
     # If a custom return value was used, the return value would have to be propagated through the call stack
     # to the top level coroutine, which would be cumbersome and error-prone.
     pass
+
+
+class InsufficientArguments(ValueError):
+    """Raised when a schedule group is created with insufficient schedules."""
+    pass

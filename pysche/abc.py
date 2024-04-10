@@ -150,3 +150,4 @@ class AbstractBaseSchedule(ABC):
         schedule_func.__name__ = task.name
         schedule_func.__qualname__ = task.name
         return schedule_func
+    

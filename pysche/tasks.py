@@ -388,7 +388,9 @@ class ScheduledTask:
 
     def __eq__(self, other: ScheduledTask) -> bool:
         if not isinstance(other, self.__class__):
-            return False
+            raise NotImplementedError(
+                f"Cannot compare '{self.__class__.__name__}' with '{other.__class__.__name__}'."
+            )
         return self.id == other.id
     
 
