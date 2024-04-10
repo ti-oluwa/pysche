@@ -65,7 +65,7 @@ class AttributeDescriptor(Generic[T, D]):
             return instance.__dict__[self.name]
         except KeyError:
             if isinstance(self.default, null):
-                raise
+                raise AttributeError(f"{self.name} is not set")
             return self.default
 
 

@@ -6,13 +6,13 @@ except ImportError:
     from backports import zoneinfo
 
 from .manager import TaskManager
-from .bases import Schedule, ScheduleType
+from .baseschedule import Schedule, ScheduleType
 from ._utils import (
     parse_datetime, MinMaxValidator as minmax,
     construct_datetime_from_time, parse_time, 
     get_datetime_now, ensure_value_is_null
 )
-from .descriptors import SetOnceDescriptor, AttributeDescriptor
+from .descriptors import SetOnceDescriptor
 
 
 month_validator = minmax(1, 12)
@@ -25,8 +25,6 @@ weekday_validator = minmax(0, 6)
 class run_at(Schedule):
     """Task will run at the specified time, everyday"""
 
-    wait_duration = AttributeDescriptor(datetime.timedelta, default=None)
-    """The timedelta to the next occurrence of the specified time."""
     time = SetOnceDescriptor(datetime.time)
     """Time in the day when the task will run."""
 
@@ -103,6 +101,8 @@ class run_at(Schedule):
 
 class run_afterevery(Schedule):
     """Task will run after the specified interval, repeatedly"""
+    
+    wait_duration = SetOnceDescriptor(datetime.timedelta, default=None)
 
     def __init__(
         self,
@@ -262,7 +262,7 @@ class BaseTimePeriodSchedule(AfterEveryMixin, Schedule):
     ):
         try:
             self.wait_duration
-        except KeyError:
+        except AttributeError:
             raise ValueError(
                 f"The '{self.__class__.__name__}' schedule cannot be used solely to create a task."
                 " It has to be chained with a schedule that has it's wait duration specified to form a useable schedule clause."

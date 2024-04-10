@@ -283,7 +283,7 @@ run_on_mondays_from_12pm_to_2pm_after_every_12min = s.run_on_weekday(0).from__to
 
 
 # Run task from April to June on the 15th of every month at 12:00
-run_from_april_to_june_on_1st_and_15th_at_12pm = s.run_from_month__to(4, 6).on_dayofmonth(15).at("12:00")
+run_from_april_to_june_every_15th_at_12pm = s.run_from_month__to(4, 6).on_dayofmonth(15).at("12:00")
 ```
 
 **Note that a schedule clause must always end with a basic schedule.**

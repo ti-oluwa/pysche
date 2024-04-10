@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Optional, TextIO, final
+from typing import Any, Optional, TextIO, final, Iterable
 import datetime
 import sys
 try:
@@ -216,3 +216,19 @@ def ensure_value_is_null(value: Any) -> None:
     if not isinstance(value, null):
         raise ValueError(f"Expected value to be of type '{null.__name__}', not '{type(value).__name__}'.")
     return
+
+
+def validate_schedules_iterable(value: Iterable) -> None:
+    from .schedules import Schedule
+    for item in value:
+        if not isinstance(item, Schedule):
+            raise TypeError("All items in the iterable must be instances of 'Schedule'")
+        try:
+            item.wait_duration
+        except AttributeError:
+            raise ValueError(
+                f"'{item}' is not a valid entry."
+                f" The '{item.__class__.__name__}' schedule cannot be used solely."
+                " It has to be chained with a schedule that has it's wait duration specified to form a useable schedule clause."
+            )
+    return None

@@ -1,7 +1,5 @@
 from __future__ import annotations
 from collections import deque
-import uuid
-import random
 import asyncio
 import time
 from typing import Callable, Any, Coroutine, List, Optional, Tuple, Dict
@@ -14,8 +12,10 @@ except ImportError:
 from dataclasses import dataclass, field, KW_ONLY, InitVar
 from enum import Enum
 
+
 from .manager import TaskManager
-from .bases import ScheduleType, NO_RESULT
+from .abc import NO_RESULT
+from .baseschedule import ScheduleType
 from ._utils import get_datetime_now, underscore_string, underscore_datetime, generate_random_id
 from .exceptions import TaskCancelled, TaskDuplicationError, TaskError, TaskExecutionError
 
@@ -49,7 +49,7 @@ class TaskCallback:
         return None
     
     def __call__(self, *args, **kwargs) -> None:
-        async_func = self.task.manager._make_asyncable(self.func)
+        async_func = self.task.manager._sync_to_async(self.func)
         self.task.manager._make_future(async_func, append=False, task=self.task, *args, **kwargs)
         return None 
     
@@ -192,7 +192,7 @@ class ScheduledTask:
             self.name = self.func.__name__
         
         stats_wrapped_func = self._wrap_func_for_time_stats(self.func)
-        self.func = self.manager._make_asyncable(stats_wrapped_func)
+        self.func = self.manager._sync_to_async(stats_wrapped_func)
 
         if abs(self.manager.max_duplicates) == self.manager.max_duplicates: # If positive
             siblings = self.manager.get_tasks(self.name)

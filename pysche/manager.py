@@ -174,9 +174,10 @@ class TaskManager:
         return None
         
         
-    def _make_asyncable(self, func: Callable) -> Callable[..., Coroutine[Any, Any, Any]]:
+    def _sync_to_async(self, func: Callable) -> Callable[..., Coroutine[Any, Any, Any]]:
         """
-        Converts a blocking function to an non-blocking function
+        Converts a blocking function to an non-blocking function that can run concurrently
+        with other function converted by this method.
 
         :args: positional arguments to pass to function
         :kwargs: keyword arguments to pass to function
