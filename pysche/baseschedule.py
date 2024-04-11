@@ -27,11 +27,11 @@ class Schedule(AbstractBaseSchedule):
     This indicates a prefix that can be removed from the string representation of a schedule.
     It usually utilized when generating a string representation of a schedule clause.
 
-    By default, the __str__ method assumes that the string representation schedules take the form "run_<schedule_name>".
-    Hence, the default behavior is to remove the prefix "run_" from the string representation of a schedule when it is a
+    By default, the __str__ method assumes that the string representation (returned by `as_string()`) takes the form "run_<schedule_name>".
+    Hence, the default behavior is to remove the prefix "run_" from the string representation when it is a
     child schedule in a schedule clause.
 
-    So, if your schedule subclass' `as_string` method returns a string representation that does not start with "run_",
+    So, if your schedule subclass' `as_string()` method returns a string representation that does not start with "run_",
     you should set this attribute to the removeable prefix of the string representation of the schedule.
     """
     parent = SetOnceDescriptor(AbstractBaseSchedule, default=None)
@@ -83,6 +83,7 @@ class Schedule(AbstractBaseSchedule):
             schedule = schedule.parent
 
         if ancestors:
+            # Reverse the list so that the first schedule in the chain is the first item in the list
             ancestors.reverse()
         return ancestors
     
@@ -110,7 +111,7 @@ class Schedule(AbstractBaseSchedule):
 
 
     def __str__(self) -> str:
-        """Returns a string representation of the schedule including its parent(s) if any."""
+        """Returns a string representation of the entire schedule/schedule clause (including any parent(s) if any)."""
         self_representation = self.as_string()
         if self.parent:
             # If the schedule has a parent(s) return the representation of the parent(s) and the schedule
@@ -129,7 +130,7 @@ class Schedule(AbstractBaseSchedule):
     
 
     def __hash__(self) -> int:
-        # Schedules with the same representation should have the same hash
+        # Schedules/schedule clauses with the same string representation should have the same hash
         return hash(str(self))
     
 
@@ -138,7 +139,7 @@ class Schedule(AbstractBaseSchedule):
             raise NotImplementedError(
                 f"Cannot compare {self.__class__.__name__} and {other.__class__.__name__}"
             )
-        # Schedules with the same representation should be considered equal
+        # Schedules/schedule clauses with the same string representation should be considered equal
         # since they will both work the same way
         return str(self) == str(other)
 

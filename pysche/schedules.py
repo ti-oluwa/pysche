@@ -11,7 +11,8 @@ from ._utils import (
     parse_datetime, MinMaxValidator as minmax,
     construct_datetime_from_time, parse_time, 
     get_datetime_now, ensure_value_is_null,
-    weekday_to_str, str_to_weekday, month_to_str
+    weekday_to_str, str_to_weekday, month_to_str,
+    str_to_month
 )
 from .descriptors import SetOnceDescriptor
 
@@ -172,28 +173,28 @@ class run_afterevery(Schedule):
 
     def as_string(self) -> str:
         # Convert the wait_duration to a dictionary
-        attrs_dict = self.destructure_wait_duration()
+        wd_dict = self.destructure_wait_duration()
         # Remove any zero values
-        attrs_dict = dict(filter(lambda item: item[1] > 0, attrs_dict.items()))
-        # Convert the attributes to a string of format "attr=value"
-        attrs_list = [f"{k}={v}" for k, v in attrs_dict.items()]
-        # Join the attributes with a comma
+        wd_dict = dict(filter(lambda item: item[1] > 0, wd_dict.items()))
+        # Convert the items to a string of format "key=value"
+        wd_list = [f"{k}={v}" for k, v in wd_dict.items()]
+        # Join the items with a comma
 
         if self.tz and (not self.parent or self.tz != self.parent.tz):
             # if this is a standalone schedule, or this is the first schedule in a schedule clause, 
             # or the tzinfo of this schedule is different from its parent's, add the tzinfo attribute
-            attrs_list.append(f"tz='{self.tz}'")
-        return f"{self.__class__.__name__.lower()}({', '.join(attrs_list)})"
+            wd_list.append(f"tz='{self.tz}'")
+        return f"{self.__class__.__name__.lower()}({', '.join(wd_list)})"
         
     
     def __describe__(self) -> str:
         # Convert the wait_duration to a dictionary
-        attrs_dict = self.destructure_wait_duration()
+        wd_dict = self.destructure_wait_duration()
         # Remove any zero values
-        attrs_dict = dict(filter(lambda item: item[1] > 0, attrs_dict.items()))
-        # Convert the attributes to a string of format "attr=value"
-        attrs_list = [f"{v} {k}" for k, v in attrs_dict.items()]
-        return f"Task will run after every {', '.join(attrs_list)}."
+        wd_dict = dict(filter(lambda item: item[1] > 0, wd_dict.items()))
+        # Convert the items to a string of format "value key"
+        wd_list = [f"{v} {k}" for k, v in wd_dict.items()]
+        return f"Task will run after every {', '.join(wd_list)}."
 
 
 class AtMixin:
@@ -416,7 +417,7 @@ class run_from__to(MSAfterEveryMixin, BaseTimePeriodSchedule):
     
 
     def __describe__(self) -> str:
-        return f"Task will run from {self._from.strftime('%H:%M:%S')} to {self._to.strftime('%H:%M:%S %z')}."
+        return f"Task will run from {self._from.strftime('%H:%M:%S')} to {self._to.strftime('%H:%M:%S %z')} everyday."
 
 
 
@@ -535,11 +536,12 @@ class run_on_dayofmonth(HMSAfterEveryMixin, TimePeriodSchedule):
 class OnWeekDayMixin:
     """Allows chaining of the "on_weekday" schedule to other schedules."""
 
-    def on_weekday(self: ScheduleType, weekday: int) -> run_on_weekday:
+    def on_weekday(self: ScheduleType, weekday: Union[int, str]) -> run_on_weekday:
         """
         Task will run on the specified day of the week, every week.
 
         :param weekday: The day of the week (0-6). 0 is Monday and 6 is Sunday.
+        You can also pass the name of the weekday as a string. E.g; "Monday", "Tuesday", etc.
         """
         return run_on_weekday(weekday, parent=self)
     
@@ -721,12 +723,14 @@ class FromDayOfMonth__ToMixin:
 class FromWeekDay__ToMixin:
     """Allows chaining of the "from_weekday__to" schedule to other schedules."""
 
-    def from_weekday__to(self: ScheduleType, _from: int, _to: int) -> run_from_weekday__to:
+    def from_weekday__to(self: ScheduleType, _from: Union[int, str], _to: Union[int, str]) -> run_from_weekday__to:
         """
         Task will only run within the specified days of the week, every week.
 
         :param _from: The day of the week (0-6) from which the task will run. 0 is Monday and 6 is Sunday.
         :param _to: The day of the week (0-6) until which the task will run. 0 is Monday and 6 is Sunday.
+
+        You can also pass the name of the weekday as a string. E.g; "Monday", "Tuesday", etc.
         """
         return run_from_weekday__to(_from=_from, _to=_to, parent=self)
 
@@ -745,11 +749,12 @@ class run_in_month(DHMSAfterEveryMixin, FromDay__ToMixin, OnDayMixin, TimePeriod
     month = SetOnceDescriptor(int, validators=[month_validator])
     """The month of the year (1-12) in which the task will run. 1 is January and 12 is December."""
 
-    def __init__(self, month: int, **kwargs) -> None:
+    def __init__(self, month: Union[int, str], **kwargs) -> None:
         """
         Create a schedule that will be due in a specific month of the year, every year.
 
         :param month: The month of the year (1-12). 1 is January and 12 is December.
+        You can also pass the name of the month as a string. E.g; "January", "February", etc.
 
         Example:
         ```
@@ -771,6 +776,8 @@ class run_in_month(DHMSAfterEveryMixin, FromDay__ToMixin, OnDayMixin, TimePeriod
         ```
         """
         super().__init__(**kwargs)
+        if isinstance(month, str):
+            month = str_to_month(month)
         self.month = month
         return None
 
@@ -791,11 +798,12 @@ class run_in_month(DHMSAfterEveryMixin, FromDay__ToMixin, OnDayMixin, TimePeriod
 class InMonthMixin:
     """Allows chaining of the "in_month" schedule to other schedules."""
 
-    def in_month(self: ScheduleType, month: int) -> run_in_month:
+    def in_month(self: ScheduleType, month: Union[int, str]) -> run_in_month:
         """
         Task will run in specified month of the year, every year.
 
         :param month: The month of the year (1-12). 1 is January and 12 is December.
+        You can also pass the name of the month as a string. E.g; "January", "February", etc.
         """
         return run_in_month(month, parent=self)
 
@@ -810,12 +818,14 @@ class run_from_month__to(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunF
     _to = SetOnceDescriptor(int, validators=[month_validator])
     """The month of the year (1-12) until which the task will run. 1 is January and 12 is December."""
 
-    def __init__(self, _from: int, _to: int, **kwargs) -> None:
+    def __init__(self, _from: Union[int, str], _to: Union[int, str], **kwargs) -> None:
         """
         Create a schedule that will only be due within the specified months of the year, every year.
 
         :param _from: The month of the year (1-12) from which the task will run. 1 is January and 12 is December.
         :param _to: The month of the year (1-12) until which the task will run. 1 is January and 12 is December.
+
+        You can also pass the name of the month as a string. E.g; "January", "February", etc.
 
         Example:
         ```
@@ -835,6 +845,10 @@ class run_from_month__to(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunF
         """
         if _from == _to:
             raise ValueError("'_from' and '_to' cannot be the same")
+        if isinstance(_from, str):
+            _from = str_to_month(_from)
+        if isinstance(_to, str):
+            _to = str_to_month(_to)
         return super().__init__(_from, _to, **kwargs)
 
     
@@ -864,12 +878,14 @@ class run_from_month__to(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunF
 class FromMonth__ToMixin:
     """Allows chaining of the "from_month__to" schedule to other schedules."""
 
-    def from_month__to(self: ScheduleType, _from: int, _to: int) -> run_from_month__to:
+    def from_month__to(self: ScheduleType, _from: Union[int, str], _to: Union[int, str]) -> run_from_month__to:
         """
         Task will only run within the specified months of the year, every year.
 
         :param _from: The month of the year (1-12) from which the task will run. 1 is January and 12 is December.
         :param _to: The month of the year (1-12) until which the task will run. 1 is January and 12 is December.
+
+        You can also pass the name of the month as a string. E.g; "January", "February", etc.
         """
         return run_from_month__to(_from=_from, _to=_to, parent=self)
   

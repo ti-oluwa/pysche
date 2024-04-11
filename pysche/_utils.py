@@ -255,19 +255,20 @@ def weekday_to_str(weekday: int) -> str:
 
 def str_to_weekday(weekday: str) -> int:
     """Convert weekday string to integer."""
-    if weekday.lower() == "monday":
+    weekday = weekday.lower()
+    if weekday == "monday":
         return 0
-    elif weekday.lower() == "tuesday":
+    elif weekday == "tuesday":
         return 1
-    elif weekday.lower() == "wednesday":
+    elif weekday == "wednesday":
         return 2
-    elif weekday.lower() == "thursday":
+    elif weekday == "thursday":
         return 3
-    elif weekday.lower() == "friday":
+    elif weekday == "friday":
         return 4
-    elif weekday.lower() == "saturday":
+    elif weekday == "saturday":
         return 5
-    elif weekday.lower() == "sunday":
+    elif weekday == "sunday":
         return 6
     raise ValueError(
         "Invalid weekday value. Must be one of 'Monday', 'Tuesday', 'Wednesday', "
@@ -278,6 +279,38 @@ def str_to_weekday(weekday: str) -> int:
 def month_to_str(month: int) -> str:
     """Convert month integer to string."""
     return datetime.date(2000, month, 1).strftime('%B')
+
+
+def str_to_month(month: str) -> int:
+    month = month.lower()
+    if month == "january":
+        return 1
+    elif month == "february":
+        return 2
+    elif month == "march":
+        return 3
+    elif month == "april":
+        return 4
+    elif month == "may":
+        return 5
+    elif month == "june":
+        return 6
+    elif month == "july":
+        return 7
+    elif month == "august":
+        return 8
+    elif month == "september":
+        return 9
+    elif month == "october":
+        return 10
+    elif month == "november":
+        return 11
+    elif month == "december":
+        return 12
+    raise ValueError(
+        "Invalid month value. Must be one of 'January', 'February', 'March', 'April', 'May', 'June', 'July', "
+        "'August', 'September', 'October', 'November', 'December'."
+    )
 
 
 def _strip_description(description: str, remove_prefix: Optional[str] = None) -> str:

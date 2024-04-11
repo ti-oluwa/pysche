@@ -1,6 +1,6 @@
 from __future__ import annotations
 import datetime
-from typing import Iterable, Union
+from typing import Iterable, Union, List
 
 from .abc import AbstractBaseSchedule
 from .baseschedule import ScheduleType
@@ -94,9 +94,9 @@ class ScheduleGroup(AbstractBaseSchedule):
         
 
     def __describe__(self) -> str:
-        schedules = list(self.schedules)
-        first_schedule = schedules.pop(0)
-        last_schedule = schedules.pop(-1)
+        schedules: List[ScheduleType] = list(self.schedules)
+        first_schedule: ScheduleType = schedules.pop(0)
+        last_schedule: ScheduleType = schedules.pop(-1)
 
         pre_desc = _strip_description(first_schedule.__describe__())
         if schedules:

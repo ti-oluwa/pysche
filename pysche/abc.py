@@ -77,6 +77,11 @@ class AbstractBaseSchedule(ABC):
         from .tasks import ScheduledTask
         def decorator(func: Callable) -> Callable[..., ScheduledTask]:
             """Create function that will run on this schedule"""
+            if not callable(func):
+                raise TypeError(
+                    f"Decorated object must be a callable not type: {type(func).__name__}"
+                )
+            
             @functools.wraps(func)
             def wrapper(*args, **kwargs) -> ScheduledTask:
                 return ScheduledTask(
