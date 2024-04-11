@@ -1,12 +1,8 @@
 from __future__ import annotations
 from typing import List, TypeVar, Union
-try:
-    import zoneinfo
-except ImportError:
-    from backports import zoneinfo
 
 from .abc import AbstractBaseSchedule
-from ._utils import utcoffset_to_zoneinfo, get_datetime_now
+from ._utils import utcoffset_to_zoneinfo, get_datetime_now, _strip_description
 from .descriptors import SetOnceDescriptor
 
 
@@ -104,6 +100,13 @@ class Schedule(AbstractBaseSchedule):
             # or the tzinfo of this schedule is different from its parent's, add the tzinfo attribute
             attrs_list.append(f"tz='{self.tz}'")
         return f"{self.__class__.__name__.lower()}({', '.join(attrs_list)})"
+    
+
+    def description(self) -> str:
+        desc = _strip_description(self.__describe__())
+        if self.parent:
+            desc = f"{_strip_description(self.parent.description())}, {_strip_description(desc.lower(), "task will run")}"
+        return f"{desc.capitalize()}."
 
 
     def __str__(self) -> str:
@@ -158,3 +161,5 @@ class Schedule(AbstractBaseSchedule):
 # Type variable for Schedule and its subclasses
 ScheduleType = TypeVar("ScheduleType", bound=Schedule)
 
+
+    

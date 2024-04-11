@@ -4,6 +4,7 @@ from .tasks import task, ScheduledTask, make_task_decorator_for_manager, TaskCal
 from ._utils import get_datetime_now, parse_datetime, parse_time, construct_datetime_from_time
 from .exceptions import TaskCancelled, TaskDuplicationError, TaskExecutionError, TaskError
 from . import schedules
+from .baseschedule import ScheduleType, AbstractBaseSchedule
 from .schedulegroups import group_schedules
 
 
@@ -30,5 +31,7 @@ __all__ = [
 
     # Schedules
     "schedules",
-    "group_schedules"
+    "group_schedules",
+    "ScheduleType",
+    "AbstractBaseSchedule",
 ]

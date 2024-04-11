@@ -5,7 +5,7 @@ from typing import Iterable, Union
 from .abc import AbstractBaseSchedule
 from .baseschedule import ScheduleType
 from .descriptors import SetOnceDescriptor
-from ._utils import validate_schedules_iterable
+from ._utils import validate_schedules_iterable, _strip_description
 from .exceptions import InsufficientArguments
 
 
@@ -50,7 +50,8 @@ class ScheduleGroup(AbstractBaseSchedule):
     
 
     def as_string(self) -> str:
-        return f"{self.__class__.__name__}({', '.join(str(schedule) for schedule in self.schedules)})"
+        """Returns a string representation of the schedule group."""
+        return f"{self.__class__.__name__}<({', '.join(str(schedule) for schedule in self.schedules)})>"
 
 
     def __iter__(self) -> Iterable[ScheduleType]:
@@ -91,6 +92,23 @@ class ScheduleGroup(AbstractBaseSchedule):
     
     __isub__ = __sub__
         
+
+    def __describe__(self) -> str:
+        schedules = list(self.schedules)
+        first_schedule = schedules.pop(0)
+        last_schedule = schedules.pop(-1)
+
+        pre_desc = _strip_description(first_schedule.__describe__())
+        if schedules:
+            mid_desc = ", ".join(_strip_description(schedule.__describe__().lower(), "task will run") for schedule in schedules)
+        else:
+            mid_desc = ""
+        post_desc = f"{_strip_description(last_schedule.__describe__().lower(), "task will run")}"
+
+        if not mid_desc:
+            return f"{pre_desc} and {post_desc}."
+        return f"{pre_desc}, {mid_desc}, and {post_desc}."
+
 
 
 def group_schedules(*schedules: ScheduleType) -> ScheduleGroup:

@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, Optional, List
+from typing import Any, Optional, List, Dict, Union
 try:
     import zoneinfo
 except ImportError:
@@ -10,7 +10,8 @@ from .baseschedule import Schedule, ScheduleType
 from ._utils import (
     parse_datetime, MinMaxValidator as minmax,
     construct_datetime_from_time, parse_time, 
-    get_datetime_now, ensure_value_is_null
+    get_datetime_now, ensure_value_is_null,
+    weekday_to_str, str_to_weekday, month_to_str
 )
 from .descriptors import SetOnceDescriptor
 
@@ -96,7 +97,10 @@ class run_at(Schedule):
             self.wait_duration = self.get_next_occurrence_of_time(self.time)
         return is_due
     
-        
+    
+    def __describe__(self) -> str:
+        return f"Task will run at {self.time.strftime('%H:%M:%S %z')} everyday."
+
 
 
 class run_afterevery(Schedule):
@@ -155,15 +159,20 @@ class run_afterevery(Schedule):
         return True
     
 
-    def as_string(self) -> str:
-        # Convert the wait_duration to a dictionary
-        attrs_dict = {
+    def destructure_wait_duration(self) -> Dict[str, int]:
+        """Convert the wait_duration to a dictionary of weeks, days, hours, minutes, and seconds."""
+        return {
             "weeks": self.wait_duration.days//7,
             "days": self.wait_duration.days%7,
             "hours": self.wait_duration.seconds//3600,
             "minutes": self.wait_duration.seconds%3600//60,
             "seconds": self.wait_duration.seconds%60,
         }
+    
+
+    def as_string(self) -> str:
+        # Convert the wait_duration to a dictionary
+        attrs_dict = self.destructure_wait_duration()
         # Remove any zero values
         attrs_dict = dict(filter(lambda item: item[1] > 0, attrs_dict.items()))
         # Convert the attributes to a string of format "attr=value"
@@ -176,7 +185,15 @@ class run_afterevery(Schedule):
             attrs_list.append(f"tz='{self.tz}'")
         return f"{self.__class__.__name__.lower()}({', '.join(attrs_list)})"
         
-        
+    
+    def __describe__(self) -> str:
+        # Convert the wait_duration to a dictionary
+        attrs_dict = self.destructure_wait_duration()
+        # Remove any zero values
+        attrs_dict = dict(filter(lambda item: item[1] > 0, attrs_dict.items()))
+        # Convert the attributes to a string of format "attr=value"
+        attrs_list = [f"{v} {k}" for k, v in attrs_dict.items()]
+        return f"Task will run after every {', '.join(attrs_list)}."
 
 
 class AtMixin:
@@ -396,6 +413,10 @@ class run_from__to(MSAfterEveryMixin, BaseTimePeriodSchedule):
         if self.parent:
             return self.parent.is_due() and is_due
         return is_due
+    
+
+    def __describe__(self) -> str:
+        return f"Task will run from {self._from.strftime('%H:%M:%S')} to {self._to.strftime('%H:%M:%S %z')}."
 
 
 
@@ -425,11 +446,12 @@ class run_on_weekday(HMSAfterEveryMixin, TimePeriodSchedule):
     weekday = SetOnceDescriptor(int, validators=[weekday_validator])
     """The day of the week (0-6) on which the task will run. 0 is Monday and 6 is Sunday."""
 
-    def __init__(self, weekday: int, **kwargs) -> None:
+    def __init__(self, weekday: Union[int, str], **kwargs) -> None:
         """
         Create a schedule that will be due on the specified day of the week, every week.
 
         :param weekday: The day of the week (0-6). 0 is Monday and 6 is Sunday.
+        You can also pass the name of the weekday as a string. E.g; "Monday", "Tuesday", etc.
 
         Example:
         ```
@@ -447,6 +469,8 @@ class run_on_weekday(HMSAfterEveryMixin, TimePeriodSchedule):
         ```
         """
         super().__init__(**kwargs)
+        if isinstance(weekday, str):
+            weekday = str_to_weekday(weekday)
         self.weekday = weekday
         return None
 
@@ -457,7 +481,10 @@ class run_on_weekday(HMSAfterEveryMixin, TimePeriodSchedule):
         if self.parent:
             return self.parent.is_due() and is_due
         return is_due
+    
 
+    def __describe__(self) -> str:
+        return f"Task will run on {weekday_to_str(self.weekday)}s."
 
 
 class run_on_dayofmonth(HMSAfterEveryMixin, TimePeriodSchedule):
@@ -498,6 +525,10 @@ class run_on_dayofmonth(HMSAfterEveryMixin, TimePeriodSchedule):
         if self.parent:
             return self.parent.is_due() and is_due
         return is_due
+    
+
+    def __describe__(self) -> str:
+        return f"Task will run on the {self.day} of every month."
 
 
 
@@ -559,12 +590,14 @@ class run_from_weekday__to(HMSAfterEveryMixin, RunFromSchedule):
     _to = SetOnceDescriptor(int, validators=[weekday_validator])
     """The day of the week (0-6) until which the task will run. 0 is Monday and 6 is Sunday."""
 
-    def __init__(self, _from: int, _to: int, **kwargs) -> None:
+    def __init__(self, _from: Union[int, str], _to: Union[int, str], **kwargs) -> None:
         """
         Create a schedule that will only be due within the specified days of the week, every week.
 
         :param _from: The day of the week (0-6) from which the task will run. 0 is Monday and 6 is Sunday.
         :param _to: The day of the week (0-6) until which the task will run. 0 is Monday and 6 is Sunday.
+
+        You can also pass the name of the weekdays as a string. E.g; "Monday", "Tuesday", etc.
         
         Example:
         ```
@@ -583,6 +616,10 @@ class run_from_weekday__to(HMSAfterEveryMixin, RunFromSchedule):
         """
         if _from == _to:
             raise ValueError("'_from' and '_to' cannot be the same")
+        if isinstance(_from, str):
+            _from = str_to_weekday(_from)
+        if isinstance(_to, str):
+            _to = str_to_weekday(_to)
         return super().__init__(_from, _to, **kwargs)
 
     
@@ -602,6 +639,10 @@ class run_from_weekday__to(HMSAfterEveryMixin, RunFromSchedule):
         if self.parent:
             return self.parent.is_due() and is_due
         return is_due
+    
+
+    def __describe__(self) -> str:
+        return f"Task will run from {weekday_to_str(self._from)} to {weekday_to_str(self._to)}."
 
 
 
@@ -656,6 +697,10 @@ class run_from_dayofmonth__to(HMSAfterEveryMixin, RunFromSchedule):
         if self.parent:
             return self.parent.is_due() and is_due
         return is_due
+    
+
+    def __describe__(self) -> str:
+        return f"Task will run from {self._from} to {self._to} of every month."
 
 
 
@@ -736,6 +781,10 @@ class run_in_month(DHMSAfterEveryMixin, FromDay__ToMixin, OnDayMixin, TimePeriod
         if self.parent:
             return self.parent.is_due() and is_due
         return is_due
+    
+
+    def __describe__(self) -> str:
+        return f"Task will run in {month_to_str(self.month)}."
 
 
 
@@ -805,6 +854,10 @@ class run_from_month__to(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunF
         if self.parent:
             return self.parent.is_due() and is_due
         return is_due
+    
+
+    def __describe__(self) -> str:
+        return f"Task will run from {month_to_str(self._from)} to {month_to_str(self._to)}."
 
     
 
@@ -860,6 +913,10 @@ class run_in_year(FromMonth__ToMixin, FromDay__ToMixin, InMonthMixin, OnDayMixin
     def is_due(self) -> bool:
         year_now = get_datetime_now(tzinfo=self.tz).year
         return year_now == self.year
+    
+
+    def __describe__(self) -> str:
+        return f"Task will run in {self.year}."
 
 
 
@@ -910,5 +967,9 @@ class run_from_datetime__to(InMonthMixin, OnDayMixin, FromMonth__ToMixin, FromDa
         if self.parent:
             return self.parent.is_due() and is_due
         return is_due
+    
+
+    def __describe__(self) -> str:
+        return f"Task will run from {self._from.strftime('%Y-%m-%d %H:%M:%S')} to {self._to.strftime('%Y-%m-%d %H:%M:%S %z')}."
 
 

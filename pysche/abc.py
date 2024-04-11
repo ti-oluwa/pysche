@@ -11,7 +11,7 @@ except ImportError:
 
 from .manager import TaskManager
 from .descriptors import SetOnceDescriptor, AttributeDescriptor
-from ._utils import get_datetime_now
+from ._utils import get_datetime_now, _strip_description
 
 
 NO_RESULT = object()
@@ -117,6 +117,23 @@ class AbstractBaseSchedule(ABC):
         pass
 
 
+    @abstractmethod
+    def __describe__(self) -> str:
+        """
+        Returns a human-readable description of the schedule.
+
+        Descriptions should always start with "Task will run" followed by the schedule description.
+        An example of a description is "Task will run every 5 minutes".
+        """
+        pass
+
+
+    def __format__(self, format_spec: str) -> str:
+        if format_spec.strip() == "desc":
+            return self.description()
+        return str(self)
+    
+
     def make_schedule_func_for_task(self, scheduledtask) -> Callable[..., Coroutine[Any, Any, None]]:
         """
         Returns coroutine function that runs the scheduled task on the appropriate schedule
@@ -150,4 +167,11 @@ class AbstractBaseSchedule(ABC):
         schedule_func.__name__ = task.name
         schedule_func.__qualname__ = task.name
         return schedule_func
-    
+
+
+    def description(self) -> str:
+        """Returns a human-readable description of the schedule."""
+        desc = _strip_description(self.__describe__().lower())
+        if not desc.startswith("task will run"):
+            raise ValueError("Description must start with 'Task will run'")
+        return f"{desc.capitalize()}."

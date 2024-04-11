@@ -232,3 +232,59 @@ def validate_schedules_iterable(value: Iterable) -> None:
                 " It has to be chained with a schedule that has it's wait duration specified to form a useable schedule clause."
             )
     return None
+
+
+def weekday_to_str(weekday: int) -> str:
+    """Convert weekday integer to string."""
+    if weekday == 0:
+        return "Monday"
+    elif weekday == 1:
+        return "Tuesday"
+    elif weekday == 2:
+        return "Wednesday"
+    elif weekday == 3:
+        return "Thursday"
+    elif weekday == 4:
+        return "Friday"
+    elif weekday == 5:
+        return "Saturday"
+    elif weekday == 6:
+        return "Sunday"
+    raise ValueError("Invalid weekday value. Must be between 0 and 6.")
+
+
+def str_to_weekday(weekday: str) -> int:
+    """Convert weekday string to integer."""
+    if weekday.lower() == "monday":
+        return 0
+    elif weekday.lower() == "tuesday":
+        return 1
+    elif weekday.lower() == "wednesday":
+        return 2
+    elif weekday.lower() == "thursday":
+        return 3
+    elif weekday.lower() == "friday":
+        return 4
+    elif weekday.lower() == "saturday":
+        return 5
+    elif weekday.lower() == "sunday":
+        return 6
+    raise ValueError(
+        "Invalid weekday value. Must be one of 'Monday', 'Tuesday', 'Wednesday', "
+        "'Thursday', 'Friday', 'Saturday', 'Sunday'."
+    )
+
+
+def month_to_str(month: int) -> str:
+    """Convert month integer to string."""
+    return datetime.date(2000, month, 1).strftime('%B')
+
+
+def _strip_description(description: str, remove_prefix: Optional[str] = None) -> str:
+    """
+    Private helper function that strips a schedule description of 
+    necessary characters and remove the prefix if specified.
+    """
+    if remove_prefix:
+        description = description.removeprefix(remove_prefix)
+    return description.strip().rstrip(".")
