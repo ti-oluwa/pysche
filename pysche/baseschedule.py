@@ -1,10 +1,15 @@
 from __future__ import annotations
-from typing import List, TypeVar, Union
+from typing import List, TypeVar, Union, Callable, Coroutine, Any
+import asyncio
+import datetime
 
 from .abc import AbstractBaseSchedule
 from ._utils import utcoffset_to_zoneinfo, get_datetime_now, _strip_description
-from .descriptors import SetOnceDescriptor
+from .descriptors import SetOnceDescriptor, AttributeDescriptor
 
+
+NO_RESULT = object()
+"""A sentinel object to indicate that the schedule func did not execute the task because the schedule is not yet due."""
 
 
 class Schedule(AbstractBaseSchedule):
@@ -37,6 +42,9 @@ class Schedule(AbstractBaseSchedule):
     parent = SetOnceDescriptor(AbstractBaseSchedule, default=None)
     """The schedule this schedule is chained to. If not specified, the schedule will be a standalone schedule."""
 
+    wait_duration = AttributeDescriptor(datetime.timedelta, default=None)
+    """The time period to wait before the schedule is due."""
+
     def __init__(self, **kwargs) -> None:
         """
         Creates a schedule.
@@ -59,6 +67,31 @@ class Schedule(AbstractBaseSchedule):
         if not self.tz:
             self.tz = utcoffset_to_zoneinfo(get_datetime_now().utcoffset())
         return None
+    
+
+    def make_schedule_func_for_task(self, scheduledtask) -> Callable[..., Coroutine[Any, Any, None]]:
+        from .tasks import ScheduledTask
+        task: ScheduledTask = scheduledtask
+        is_due = task.manager._sync_to_async(self.is_due)
+
+        async def schedule_func(*args, **kwargs) -> None:
+            # If the schedule has a wait duration, sleep for the duration before running the task
+            if self.wait_duration is not None and task.is_paused is False:
+                await asyncio.sleep(self.wait_duration.total_seconds())
+
+            # If the task is paused, do not proceed
+            while task.is_paused is True:
+                await asyncio.sleep(0.0001)
+                continue
+            
+            if await is_due() is True:
+                task._last_executed_at = get_datetime_now(self.tz)
+                return await task.func(*args, **kwargs)
+            return NO_RESULT
+
+        schedule_func.__name__ = task.name
+        schedule_func.__qualname__ = task.name
+        return schedule_func
 
     
     def get_ancestors(self) -> List[ScheduleType]:
@@ -149,10 +182,10 @@ class Schedule(AbstractBaseSchedule):
         from .schedulegroups import group_schedules
         try:
             return group_schedules(self, other)
-        except ValueError:
+        except ValueError as exc:
             raise ValueError(
-                f"Cannot add {self.__class__.__name__} and {other.__class__.__name__}"
-            )
+                f"Cannot add {self} and {other}"
+            ) from exc
 
     # Allows the addition of schedules using the `+` operator
     __iadd__ = __add__

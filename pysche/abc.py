@@ -2,20 +2,15 @@ from __future__ import annotations
 from typing import Callable, Coroutine, Any, List, Optional
 import functools
 from abc import ABC, abstractmethod
-import datetime
-import asyncio
 try:
     import zoneinfo
 except ImportError:
     from backports import zoneinfo
 
 from .manager import TaskManager
-from .descriptors import SetOnceDescriptor, AttributeDescriptor
-from ._utils import get_datetime_now, _strip_description
+from .descriptors import SetOnceDescriptor
+from ._utils import _strip_description
 
-
-NO_RESULT = object()
-"""A sentinel object to indicate that the schedule func did not execute the task because the schedule is not yet due."""
 
 
 class AbstractBaseSchedule(ABC):
@@ -25,9 +20,6 @@ class AbstractBaseSchedule(ABC):
     """
     The timezone to use for the schedule. This should only be set once.
     """
-    wait_duration = AttributeDescriptor(datetime.timedelta, default=None)
-    """The time period to wait before the schedule is due."""
-
     def __init__(self, **kwargs) -> None:
         """
         Creates a schedule.
@@ -139,6 +131,7 @@ class AbstractBaseSchedule(ABC):
         return str(self)
     
 
+    @abstractmethod
     def make_schedule_func_for_task(self, scheduledtask) -> Callable[..., Coroutine[Any, Any, None]]:
         """
         Returns coroutine function that runs the scheduled task on the appropriate schedule
@@ -150,28 +143,7 @@ class AbstractBaseSchedule(ABC):
 
         :param scheduledtask: The scheduled task to run.
         """
-        from .tasks import ScheduledTask
-        task: ScheduledTask = scheduledtask
-        is_due = task.manager._sync_to_async(self.is_due)
-
-        async def schedule_func(*args, **kwargs) -> None:
-            # If the schedule has a wait duration, sleep for the duration before running the task
-            if self.wait_duration is not None and task.is_paused is False:
-                await asyncio.sleep(self.wait_duration.total_seconds())
-
-            # If the task is paused, do not proceed
-            while task.is_paused is True:
-                await asyncio.sleep(0.0001)
-                continue
-            
-            if await is_due() is True:
-                task._last_executed_at = get_datetime_now(self.tz)
-                return await task.func(*args, **kwargs)
-            return NO_RESULT
-
-        schedule_func.__name__ = task.name
-        schedule_func.__qualname__ = task.name
-        return schedule_func
+        pass
 
 
     def description(self) -> str:

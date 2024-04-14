@@ -2,7 +2,7 @@ from __future__ import annotations
 from collections import deque
 import asyncio
 import time
-from typing import Callable, Any, Coroutine, List, Optional, Tuple, Dict
+from typing import Callable, Any, Coroutine, List, Optional, Tuple, Dict, Union
 import functools
 import datetime
 try:
@@ -14,10 +14,10 @@ from enum import Enum
 
 
 from .manager import TaskManager
-from .abc import NO_RESULT
-from .baseschedule import ScheduleType
+from .baseschedule import ScheduleType, NO_RESULT
 from ._utils import get_datetime_now, underscore_string, underscore_datetime, generate_random_id
-from .exceptions import TaskCancelled, TaskDuplicationError, TaskError, TaskExecutionError
+from .schedulegroups import ScheduleGroup
+from .exceptions import CancelTask, TaskDuplicationError, TaskError, TaskExecutionError
 
 
 
@@ -50,7 +50,7 @@ class TaskCallback:
     
     def __call__(self, *args, **kwargs) -> None:
         async_func = self.task.manager._sync_to_async(self.func)
-        self.task.manager._make_future(async_func, append=False, task=self.task, *args, **kwargs)
+        self.task.manager._make_future(async_func, append=False, task=self.task, *args, **kwargs) 
         return None 
     
 
@@ -186,6 +186,7 @@ class ScheduledTask:
     """The last time this task was executed (in the timezone in which the task was scheduled)"""
     _exc_count: int = field(default=0, init=False)
     """The number of times the task has been executed (successfully or not) since it started."""
+    _exc: Exception = None # added to be used by schedule groups
 
     def __post_init__(self, start_immediately: bool) -> None:
         if not self.name:
@@ -331,7 +332,7 @@ class ScheduledTask:
                 ):
                     break
 
-                except TaskCancelled as exc:
+                except CancelTask as exc:
                     if exc.args:
                         self.log(f"Task cancellation requested: {exc.args[0]}\n", level="INFO")
                     self.cancel()
@@ -359,9 +360,8 @@ class ScheduledTask:
                     # Ensures that the maximum allowed retries is reset 
                     # peradventure an error has occurred before, but it was resolved.
                     err_count = 0
-                    if self.save_results is True and result is not NO_RESULT:
-                        task_result = TaskResult(self, self.execution_count, result)
-                        self.resultset.append(task_result)
+                    # Add result to resultset if necessary
+                    self._add_result(result)
                     continue
 
         except Exception as exc:
@@ -372,6 +372,18 @@ class ScheduledTask:
                 self.log("Task execution stopped.\n")
                 self._is_active = False
                 self.run_callbacks(CallbackTrigger.STOPPED)
+        return None
+    
+
+    def _add_result(self, result: Any) -> None:
+        """
+        Adds a result to the resultset if save_results is True
+        
+        Ignores the result if it is `NO_RESULT`
+        """
+        if self.save_results is True and result is not NO_RESULT:
+            task_result = TaskResult(self, self.execution_count, result)
+            self.resultset.append(task_result)
         return None
 
     
@@ -642,7 +654,7 @@ class ScheduledTask:
 
 # ------------- DECORATOR AND DECORATOR FACTORY ------------- #
 def task(
-    schedule: ScheduleType,
+    schedule: Union[ScheduleType, ScheduleGroup],
     manager: TaskManager,
     *,
     name: Optional[str] = None,
@@ -730,7 +742,7 @@ def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Ca
 
     @functools.wraps(task)
     def decorator_wrapper(
-        schedule: ScheduleType,
+        schedule: Union[ScheduleType, ScheduleGroup],
         *,
         name: Optional[str] = None,
         tags: Optional[List[str]] = None,

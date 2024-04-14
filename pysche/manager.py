@@ -125,6 +125,15 @@ class TaskManager:
     
     def __lt__(self, other: TaskManager) -> bool:
         return not self.__gt__(other)
+    
+
+    def __getitem__(self, name_or_id: str):
+        task = self.get_task(name_or_id)
+        if not task:
+            raise KeyError(
+                f"Task '{name_or_id}' is not registered with {self.name}"
+            )
+        return task
 
 
     @property

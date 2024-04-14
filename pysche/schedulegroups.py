@@ -1,6 +1,7 @@
 from __future__ import annotations
-import datetime
-from typing import Iterable, Union, List
+from collections import deque
+from typing import Any, Callable, Coroutine, Iterable, Union, List
+import asyncio
 
 from .abc import AbstractBaseSchedule
 from .baseschedule import ScheduleType
@@ -26,27 +27,105 @@ class ScheduleGroup(AbstractBaseSchedule):
 
         :param schedules: The schedules to group. Duplicate schedules will be removed.
         """
+        schedules = tuple(set(schedules))
         if len(schedules) < 2:
-            raise InsufficientArguments("At least two schedules are required to create a schedule group.")
-        self.schedules = tuple(set(schedules))
+            raise InsufficientArguments(
+                "At least two dissimilar schedules are required to create a schedule group."
+            )
+        self.schedules = schedules
         return None
     
-    # Overrides the default wait_duration attribute
-    @property
-    def wait_duration(self) -> datetime.timedelta:
-        """
-        The time until the next schedule in the group is due.
-
-        This is useful for determining how long to wait before checking 
-        if any of the schedules in the group are due.
-        """
-        wait_durations = sorted([schedule.wait_duration for schedule in self.schedules])
-        smallest_wait_duration = wait_durations[0]
-        return smallest_wait_duration
     
     def is_due(self) -> bool:
         # If any of the schedules in the group is due, the group is due
         return any(schedule.is_due() for schedule in self.schedules)
+    
+
+    def make_schedule_func_for_task(self, scheduledtask) -> Callable[..., Coroutine[Any, Any, None]]:
+        from .tasks import ScheduledTask
+        task: ScheduledTask = scheduledtask
+        task._exc = None
+        created_futures: deque[asyncio.Future] = deque()
+        
+        # Use a generator to ensure creation of schedule functions is lazy
+        def schedule_funcs():
+            """Yield schedule functions for each schedule in the group."""
+            for schedule in self.schedules:
+                yield schedule.make_schedule_func_for_task(task)
+
+        def done_callback(future: asyncio.Future) -> None:
+            """
+            Handles exception propagation, adding the result to the task and rescheduling the
+            a new schedule function if the current one completes successfully
+            """
+            nonlocal created_futures
+            try:
+                # try to get the result of the future
+                result = future.result()
+            except Exception as exc:
+                created_futures.remove(future)
+                # if an exception occurred, set the exception attribute of the task
+                future.task._exc = exc
+            else:
+                # If the future completed successfully,
+                # add the result to the task, and
+                future.task._add_result(result)
+                created_futures.remove(future)
+                # reschedule the schedule function
+                create_future_for_schedule_func(future.task, future.schedule_func, *future.args, **future.kwargs)
+            finally:
+                del future
+            return
+        
+        def create_future_for_schedule_func(task: ScheduledTask, schedule_func: Callable[..., Coroutine], *args, **kwargs) -> asyncio.Future:
+            """
+            Make futures that can run concurrently in the background
+            for each schedule function, and pass argument and keyword arguments
+            passed to this function to each schedule function
+            """
+            nonlocal created_futures
+            future = task.manager._make_future(schedule_func, False, *args, **kwargs)
+            # Reference the task, schedule function, and arguments and keyword arguments
+            future.task = task
+            future.schedule_func = schedule_func
+            future.args = args
+            future.kwargs = kwargs
+            # Add a callback to the future, this callback handles exception
+            # propagation, adding the result to the task and rescheduling the
+            # a new schedule function if the current one completes successfully
+            future.add_done_callback(done_callback)
+            created_futures.append(future)
+            return future
+
+        async def schedulegroup_func(*args, **kwargs):
+            nonlocal task
+            nonlocal created_futures
+            for schedule_func in schedule_funcs():
+                create_future_for_schedule_func(task, schedule_func, *args, **kwargs)
+
+            try:
+                # Wait indefinitely, until an exception occurs or the task is cancelled
+                while task._exc is None:
+                    await asyncio.sleep(0.0001)
+                    continue
+                else:
+                    # If an exception occurred, raise it
+                    # this allows any exceptions that occurred in the schedule functions
+                    # to be propagated properly to the task where it will be handled
+                    raise task._exc
+            except asyncio.CancelledError:
+                # If the task is cancelled (at runtime or due to system/keyboard exit), cancel all the created futures
+                if task.cancelled is True:
+                    # future.cancel will modify the created_futures deque while iterating
+                    # so we need to create a copy of the deque to avoid modifying it
+                    for future in created_futures.copy():
+                        future.cancel()
+                # Raise the CancelledError after doing necessary cleanup
+                raise
+        
+        schedulegroup_func.__name__ = task.name
+        schedulegroup_func.__qualname__ = task.name
+        return schedulegroup_func
     
 
     def as_string(self) -> str:
@@ -70,14 +149,16 @@ class ScheduleGroup(AbstractBaseSchedule):
         return hash(self.schedules)
     
 
-    def __add__(self, other: ScheduleType) -> ScheduleGroup:
+    def __add__(self, other: Union[ScheduleType, ScheduleGroup]) -> ScheduleGroup:
         """Adds a new schedule to the group."""
         try:
+            if isinstance(other, ScheduleGroup):
+                return self.__class__(*self.schedules, *other.schedules)
             return self.__class__(*self.schedules, other)
-        except ValueError:
+        except ValueError as exc:
             raise ValueError(
-                f"Cannot add {self.__class__.__name__} and {other.__class__.__name__}"
-            )
+                f"Cannot add {self} and {other}"
+            ) from exc
     
     __radd__ = __add__
     __iadd__ = __add__
@@ -121,7 +202,9 @@ def group_schedules(*schedules: ScheduleType) -> ScheduleGroup:
     A schedule group is a group of schedules that will be due if any of the schedules in the group is due.
 
     It allows a single task to be scheduled to run at multiple times without having to create multiple
-    tasks doing the same thing but on different schedules.
+    tasks doing the same thing but on different schedules. 
+    The task will run on each schedule independently as the schedules with block each other.
+    This means that if a number of schedules are due at the same time the task will run multiple times
 
     For example:
     ```python

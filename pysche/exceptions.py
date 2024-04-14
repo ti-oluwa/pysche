@@ -19,7 +19,7 @@ class UnregisteredTask(TaskError):
     pass
 
 
-class TaskCancelled(TaskError):
+class CancelTask(TaskError):
     """
     Raised to request that a task be cancelled.
 
@@ -38,7 +38,7 @@ class TaskCancelled(TaskError):
         ...
         if some_condition:
             # Cancel the task
-            raise pysche.TaskCancelled
+            raise pysche.CancelTask
         else:
             # do something else
             ...
