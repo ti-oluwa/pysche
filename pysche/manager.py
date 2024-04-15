@@ -282,7 +282,7 @@ class TaskManager:
                 time.sleep(0.001)
                 continue
         except (KeyboardInterrupt, SystemExit):
-            self.stop()
+            self.stop(wait=True)
         return None
       
     
@@ -319,7 +319,7 @@ class TaskManager:
         as it indefinitely stops the manager from executing any task.
         """
         if self.is_occupied:
-            self.stop(wait=False) # stop all task execution, if the manager is occupied with any
+            self.stop(wait=True) # stop all task execution, if the manager is occupied with any
 
         self._loop.close()
         self._executor.shutdown(wait=True, cancel_futures=True)

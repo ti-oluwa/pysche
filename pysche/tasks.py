@@ -1,6 +1,7 @@
 from __future__ import annotations
 from collections import deque
 import asyncio
+import sys
 import time
 from typing import Callable, Any, Coroutine, List, Optional, Tuple, Dict, Union
 import functools
@@ -35,22 +36,19 @@ class CallbackTrigger(Enum):
 @dataclass(slots=True, eq=True, frozen=True)
 class TaskCallback:
     """Encapsulates a callback to be executed when a specific event occurs during the task's execution."""
-
-    task: ScheduledTask
-    """The task to which the callback is attached"""
     func: Callable
     """The function to be called"""
     trigger: CallbackTrigger
     """The event that triggers the callback"""
-
+    
     def __post_init__(self) -> None:
         if not callable(self.func):
             raise ValueError(f"Callback function must be callable. Got {self.func!r}.")
         return None
     
-    def __call__(self, *args, **kwargs) -> None:
-        async_func = self.task.manager._sync_to_async(self.func)
-        self.task.manager._make_future(async_func, append=False, task=self.task, *args, **kwargs) 
+    def __call__(self, task: ScheduledTask) -> None:
+        async_func = task.manager._sync_to_async(self.func)
+        task.manager._make_future(async_func, append=False, task=task)
         return None 
     
 
@@ -170,7 +168,7 @@ class ScheduledTask:
     """A unique identifier for this task"""
     started_at: datetime.datetime = field(default=None, init=False)
     """The time the task was allowed to start execution"""
-    callbacks: List[TaskCallback] = field(default_factory=list, init=False)
+    callbacks: deque[TaskCallback] = field(default_factory=deque, init=False)
     """A list of `TaskCallback`s to be executed when a specific event occurs during the task's execution."""
     resultset: Optional[deque[TaskResult]]= field(default=None, init=False)
     """A deque containing results returned from each iteration of execution of this tasks."""
@@ -615,7 +613,7 @@ class ScheduledTask:
         The event can be one of 'error', 'paused', 'resumed', 'cancelled', 'failed', 'started', 'stopped'.
         """
         trigger = CallbackTrigger(trigger)
-        callback = TaskCallback(self, callback_func, trigger)
+        callback = TaskCallback(callback_func, trigger)
         self.callbacks.append(callback)
         return None
 
@@ -628,10 +626,10 @@ class ScheduledTask:
         The event can be one of 'error', 'paused', 'resumed', 'cancelled', 'failed', 'started', 'stopped'.
         """
         trigger = CallbackTrigger(trigger)
-        return list(filter(lambda cb: cb.task == self and cb.trigger == trigger, self.callbacks))
+        return list(filter(lambda cb: cb.trigger == trigger, self.callbacks))
 
 
-    def run_callbacks(self, trigger: str | CallbackTrigger, *args, **kwargs) -> None:
+    def run_callbacks(self, trigger: str | CallbackTrigger) -> None:
         """
         Run all callbacks for a specific event trigger
 
@@ -640,7 +638,7 @@ class ScheduledTask:
         """
         trigger = CallbackTrigger(trigger)
         for callback in self.get_callbacks(trigger):
-            callback(*args, **kwargs)
+            callback(self)
         return None
 
 

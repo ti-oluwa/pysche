@@ -118,7 +118,7 @@ class ScheduleGroup(AbstractBaseSchedule):
                 if task.cancelled is True:
                     # future.cancel will modify the created_futures deque while iterating
                     # so we need to create a copy of the deque to avoid modifying it
-                    for future in created_futures.copy():
+                    for future in created_futures[:]:
                         future.cancel()
                 # Raise the CancelledError after doing necessary cleanup
                 raise
