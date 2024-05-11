@@ -630,7 +630,7 @@ class TaskManager:
             pass
     
     
-    def newtask(
+    def task(
         self,
         schedule,
         func: Optional[Callable] = None,

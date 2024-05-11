@@ -39,7 +39,7 @@ import pysche
 manager = pysche.TaskManager()
 s = pysche.schedules
 
-@manager.newtask(s.run_afterevery(seconds=20))
+@manager.task(s.run_afterevery(seconds=20))
 def send_message(msg: str):
     print(msg)
 

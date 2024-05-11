@@ -1,6 +1,6 @@
 from __future__ import annotations
 from collections import deque
-from typing import Any, Callable, Coroutine, Iterable, Union, List
+from typing import Any, Callable, Coroutine, Iterable, Iterator, Union, List
 import asyncio
 
 from .abc import AbstractBaseSchedule
@@ -121,8 +121,12 @@ class ScheduleGroup(AbstractBaseSchedule):
         return f"{self.__class__.__name__}<({', '.join(str(schedule) for schedule in self.schedules)})>"
 
 
-    def __iter__(self) -> Iterable[ScheduleType]:
+    def __iter__(self) -> Iterator[ScheduleType]:
         return iter(self.schedules)
+    
+
+    def __contains__(self, schedule: ScheduleType) -> bool:
+        return schedule in self.schedules
     
 
     def __eq__(self, other: Union[ScheduleGroup, object]) -> bool:
