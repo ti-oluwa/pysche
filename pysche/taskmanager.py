@@ -1,5 +1,5 @@
 from __future__ import annotations
-from collections.abc import Coroutine
+import concurrent.futures as cf
 import datetime
 import logging
 from collections import deque
@@ -8,15 +8,13 @@ import time
 from typing import Any, Callable, Dict, Sequence, List, Mapping, Optional
 import asyncio
 import functools
-from concurrent.futures import CancelledError, ThreadPoolExecutor
 from dataclasses import KW_ONLY, dataclass, field, InitVar
+import atexit
+from contextlib import contextmanager
 
 
-from ._utils import (
-    _RedirectStandardOutputStream, parse_datetime, 
-    get_datetime_now, underscore_datetime
-)
-from .exceptions import UnregisteredTask
+from ._utils import parse_datetime, get_datetime_now, underscore_datetime
+from .exceptions import UnregisteredTask, TaskDuplicationError
 from .logging import get_logger
 
 
@@ -50,7 +48,6 @@ class TaskManager:
         main()
     ```
     """
-
     name: Optional[str] = None
     """The name of the task manager. Defaults to the class name and a unique ID."""
     _: KW_ONLY
@@ -59,38 +56,46 @@ class TaskManager:
     The maximum number of task duplicates that can be managed at a time.
     Set to a negative number to allow unlimited instances.
     """
-    log_to: InitVar[Optional[str]] = None
+    log_file: InitVar[Optional[str]] = None
     """
     Path to log file. If provided, task execution details are logged to the file.
+    """
+    log_to_console: InitVar[bool] = True
+    """
     """
 
     # Used deque to allow for thread-safety and O(1) time complexity when removing tasks from the list
     _tasks: deque = field(init=False, default_factory=deque)
     """A list of scheduled tasks that are currently being managed."""
     _futures: deque[asyncio.Future]  = field(init=False, default_factory=deque)
-    """A list of futures that from the scheduled tasks being managed."""
+    """A list of scheduled task coroutine futures being tracked by this manager."""
     _continue: bool = field(init=False, default=False)
     """A flag that allows all ScheduleTasks managed by this manager to run."""
     _loop: asyncio.AbstractEventLoop = field(init=False, default_factory=asyncio.new_event_loop)
-    """The event loop used to run scheduled tasks."""
+    """The event loop where scheduled tasks run in the background."""
+    # This event loop will be set as the default event loop for the
+    # background/work thread where the scheduled tasks will run.
     _workthread: Optional[threading.Thread] = field(init=False, default=None)
-    """The thread used to run the event loop."""
-    _executor: ThreadPoolExecutor = field(init=False)
-    """The executor used to run blocking functions as asynchronous tasks."""
+    """The thread where the manager's event loop runs. It is a background thread where the manager executes tasks in."""
     logger: logging.Logger = field(init=False)
     """The logger used to log task execution details."""
+    _shutdown: bool = field(init=False, default=False)
+    """Returns True if the manager has been shutdown, False otherwise."""
 
-    def __post_init__(self, log_to: str) -> None:
+    def __post_init__(self, log_file: str, log_to_console: bool) -> None:
         if not self.name:
             self.name = f"{self.__class__.__name__.lower()}{str(id(self))[-6:]}"
 
-        self._executor = ThreadPoolExecutor(thread_name_prefix=f"{self.name}_sync_to_async_executor")
         self.logger = get_logger(
-            name=f"{self.name}_logger",
-            logfile_path=log_to,
+            name=f"{self.name}:logger",
+            logfile_path=log_file,
+            to_console=log_to_console,
             base_level="DEBUG",
             date_format="%Y-%m-%d %H:%M:%S (%z)"
         )
+        # Register the shutdown method to be called when the program exits
+        # Ensures that all resources are cleaned up properly on exit
+        atexit.register(self.shutdown, wait=True)
         return None
     
     
@@ -99,7 +104,7 @@ class TaskManager:
     
     
     def __del__(self) -> None:
-        self.shutdown()
+        self.shutdown(wait=False)
         return None
     
 
@@ -134,10 +139,13 @@ class TaskManager:
                 f"Task '{name_or_id}' is not registered with {self.name}"
             )
         return task
+    
 
+    def __contains__(self, name_or_id: str) -> bool:
+        return self.is_managing(name_or_id)
 
     @property
-    def has_started(self) -> bool:
+    def is_active(self) -> bool:
         """
         Returns True if the task manager has started and is able to execute tasks
         """
@@ -167,12 +175,12 @@ class TaskManager:
     @property
     def is_occupied(self) -> bool:
         """
-        Returns True if the task manager is currently has any active task (paused or not)
+        Returns True if the task manager is active and currently has any active task (paused or not)
         """
         # iterate over a copy of the tasks list, self.tasks[:], instead of the list itself to avoid
         # runtime error / race conditions that may occur when trying modify the task list while it is been
         # iterated over.
-        return self.has_started and any([ task.is_active for task in self.tasks[:] ])
+        return self.is_active and any([ task.is_active for task in self.tasks[:] ]) is True
     
     @property
     def status(self):
@@ -182,54 +190,46 @@ class TaskManager:
     
     def _start_execution(self) -> None:
         """Start the event loop in the work thread and begin executing all scheduled tasks"""
+        # Set the default event loop for the work thread as the manager's event loop and run it
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
         return None
-        
-        
-    def _sync_to_async(self, func: Callable) -> Callable[..., Coroutine[Any, Any, Any]]:
-        """
-        Converts a blocking function to an non-blocking function that can run concurrently
-        with other function converted by this method.
-
-        :args: positional arguments to pass to function
-        :kwargs: keyword arguments to pass to function
-        """
-        if not callable(func):
-            raise TypeError("'func' must be a callable")
-        
-        @functools.wraps(func)
-        async def async_func(*args, **kwargs) -> Any:
-            try:
-                # Use in case the function writes to the standard output stream in the background
-                with _RedirectStandardOutputStream():
-                    future = self._loop.run_in_executor(self._executor, lambda: func(*args, **kwargs))
-                    return await future
-            except CancelledError as exc:
-                # Ensure that any exception raised by the function is caught and re-raised in the main thread
-                raise asyncio.CancelledError(exc)
-            
-        return async_func
     
 
-    def _make_future(self, coroutine_func, append: bool = True, *args, **kwargs) -> asyncio.Future:
-        """
-        Creates and returns an `asyncio.Future` that runs asynchronously in this manager's event loop
-        for a coroutine function.
+    def _add_task(self, task) -> None:
+        """Add a task to the list of tasks managed by this manager"""
+        is_positive = abs(self.max_duplicates) == self.max_duplicates
+        if is_positive:
+            siblings = self.get_tasks(self.name)
+            if len(siblings) >= self.max_duplicates:
+                raise TaskDuplicationError(
+                    f"'{self.name}' can only manage {self.max_duplicates} duplicates of '{self.name}'."
+                )
+        self._tasks.append(task)
+        return None
+    
 
-        :param coroutine_func: The coroutine function to create a future for. This could be a scheduled task.
-        :param append: If True and the coroutine function is a scheduled task, the future is added to the list of futures handled by this manager
+    def _run_in_workthread(self, coroutine_func, append: bool = True, *args, **kwargs) -> cf.Future:
+        """
+        Run a coroutine function in the manager's work thread (background-thread).
+
+        Returns an asyncio.Future that runs the coroutine concurrently with other tasks in the manager's work thread.
+
+        :param coroutine_func: The coroutine function to run. This could be a scheduled task
+        :param append: If True and the coroutine function is a scheduled task, 
+        the future for the scheduled task coroutine is added to the list of futures tracked by this manager.
         """
         from .tasks import ScheduledTask
-        # Used `run_coroutine_threadsafe` to ensure that tasks(futures) are 
-        # run concurrently and in a thread-safe manner once the loop starts running
-        future = asyncio.run_coroutine_threadsafe(coroutine_func(*args, **kwargs), self._loop)
+        # To create a task/future that run the given coroutine from the current thread (main-thread)
+        # in the manager's work thread (background-thread), use `run_coroutine_threadsafe` for thread safety. 
+        # The task created runs concurrently with other tasks in the manager's event loop.
+        cf_future = asyncio.run_coroutine_threadsafe(coroutine_func(*args, **kwargs), self._loop)
 
         if append is True and isinstance(coroutine_func, ScheduledTask):
-            future.name = coroutine_func.name
-            future.id = coroutine_func.id
-            self._futures.append(future)
-        return future
+            cf_future.name = coroutine_func.name
+            cf_future.id = coroutine_func.id
+            self._futures.append(cf_future)
+        return cf_future
     
 
     def _get_futures(self, name: str) -> List[asyncio.Future]:
@@ -251,7 +251,7 @@ class TaskManager:
 
     def start(self) -> None:
         """Start executing all scheduled tasks"""
-        if self.has_started:
+        if self.is_active:
             raise RuntimeError(f"{self.name} has already started task execution.\n")
         
         self._continue = True # allows all ScheduleTasks to run
@@ -267,7 +267,7 @@ class TaskManager:
                 continue
         else:
             # If not, just wait for manager to start successfully
-            while not self.has_started:
+            while not self.is_active:
                 continue
         return None
         
@@ -277,54 +277,85 @@ class TaskManager:
         Wait for this manager to finish executing all scheduled tasks.
         This method blocks the current thread until all tasks are no longer active/running.
         """
-        try:
-            while self.is_occupied:
+        while self.is_occupied:
+            try:
                 time.sleep(0.001)
                 continue
-        except (KeyboardInterrupt, SystemExit):
-            self.stop(wait=True)
+            except (KeyboardInterrupt, SystemExit):
+                break
         return None
-      
     
-    def stop(self, wait: bool = True) -> None:
+
+    @contextmanager
+    def execute_till_idle(self):
+        """
+        Context manager that starts the manager and waits for it to finish executing all tasks.
+
+        Blocks the current thread until all tasks are no longer active/running.
+        """
+        try:
+            self.start()
+            yield
+            self.join()
+        finally:
+            self.log(f"{self.name} is idle. Exiting...", level="INFO")
+            return None
+    
+    
+    def stop(self) -> None:
         """
         Cancel all scheduled tasks and stop the manager from executing any more tasks.
-
-        :param wait: wait for the current iteration of all tasks 
-        execution to end properly after cancel operation has been performed.
         """
-        if not self.has_started:
+        print("Stopping...")
+        if not self.is_active:
             raise RuntimeError(f"{self.name} has not started task execution yet.\n")
+        
+        self._continue = False # breaks outermost while loop in all ScheduleTask's __call__ method
 
-        self._continue = False # breaks outermost while loop in all ScheduleTasks
-
-        # Cancel all tasks which eventually cancels all futures before stopping loop
+        # Stops all tasks which eventually cancels all futures before the loop is stopped
         # This helps avoid the warning message that is thrown by the loop when it is stopped
         for task in self.tasks:
-            task.cancel(wait=wait)
+            task.stop()
 
+        # Stop the loop running in the work thread
         self._loop.call_soon_threadsafe(self._loop.stop)
-
+        # Wait for the loop to stop running
+        while self._loop.is_running():
+            continue
+        # Wait for the work thread to finish executing
         self._workthread.join()
-        del self._workthread
         self._workthread = None
         return None
     
 
-    def shutdown(self) -> None:
+    def shutdown(self, wait: bool = True) -> None:
         """
         Cancel all tasks and clean up resources.
 
         This method should only be called when the task manager is no longer needed
         as it indefinitely stops the manager from executing any task.
-        """
-        if self.is_occupied:
-            self.stop(wait=True) # stop all task execution, if the manager is occupied with any
 
-        self._loop.close()
-        self._executor.shutdown(wait=True, cancel_futures=True)
-        del self._executor
-        del self._loop
+        :param wait: Wait for all tasks handled by the manager to stop/finish executing and ensure that
+        all resources are properly cleaned up before returning
+        """
+        if self._shutdown:
+            return
+        
+        print("Starting Shut down...")
+        # stop all task execution
+        if self.is_active:
+            self.stop()
+
+        if wait is True:
+            # wait for the manager to finish executing all tasks
+            self.join()
+
+        if not self._loop.is_closed():
+            print("Closing loop...")
+            self._loop.close()
+
+        print("Shutdown complete!")
+        self._shutdown = True
         return None
 
 
@@ -377,11 +408,11 @@ class TaskManager:
         """
         from .schedules import run_afterevery
         from .tasks import ScheduledTask
-        # Wraps function such that the function runs once and then the task is cancelled
+        # Wraps function such that the function runs once and then the task is stopped
         @functools.wraps(func)
         def wrapped_func(*args, **kwargs) -> Any:
             result = func(*args, **kwargs)
-            wrapped_func.task.cancel()
+            wrapped_func.task.stop()
             return result
         
         task = ScheduledTask(
@@ -433,7 +464,7 @@ class TaskManager:
         @functools.wraps(func)
         def wrapped_func(*args, **kwargs) -> Any:
             result = func(*args, **kwargs)
-            wrapped_func.task.cancel()
+            wrapped_func.task.stop()
             return result
         
         task = ScheduledTask(
@@ -479,7 +510,7 @@ class TaskManager:
         @functools.wraps(func)
         def wrapped_func(*args, **kwargs) -> Any:
             result = func(*args, **kwargs)
-            wrapped_func.task.cancel()
+            wrapped_func.task.stop()
             return result
         
         task = ScheduledTask(
@@ -505,7 +536,7 @@ class TaskManager:
         :param delay: The number of seconds to wait before stopping the execution of all tasks
         :return: The created task
         """
-        if not self.has_started:
+        if not self.is_active:
             raise RuntimeError(f"{self.name} has not started task execution yet.\n")
         return self.run_after(delay, self.stop, task_name=f"stop_{self.name}_after_{delay}seconds")
     
@@ -517,7 +548,7 @@ class TaskManager:
         :param time: The time to stop the execution of all tasks. Must be in the format 'HH:MM' or 'HH:MM:SS'
         :return: The created task
         """
-        if not self.has_started:
+        if not self.is_active:
             raise RuntimeError(f"{self.name} has not started task execution yet. Y\n")
         return self.run_at(time, self.stop, task_name=f"stop_{self.name}_at_{underscore_datetime(time)}")
     
@@ -529,35 +560,35 @@ class TaskManager:
         :param datetime: The datetime to stop the execution of all tasks. Must be in the format 'YYY-MM-DD HH:MM:SS'
         :return: The created task
         """
-        if not self.has_started:
+        if not self.is_active:
             raise RuntimeError(f"{self.name} has not started task execution yet. Y\n")
         return self.run_on(datetime, self.stop, task_name=f"stop_{self.name}_on_{underscore_datetime(datetime)}")
     
 
-    def cancel_task(self, name_or_id: str, /, *, wait: bool = True) -> None:
-        """Cancel all tasks with the specified name or ID"""
+    def stop_task(self, name_or_id: str, /) -> None:
+        """Stops all tasks with the specified name or ID"""
         if not self.is_managing(name_or_id):
             raise UnregisteredTask(f"Task '{name_or_id}' is not registered with {self.name}")
         
         for task in self.tasks:
             if task.name != name_or_id and task.id != name_or_id:
                 continue
-            task.cancel(wait=wait)
+            task.stop()
         return None
     
 
-    def get_running_tasks(self):
-        """Returns a list of tasks that are currently running and not paused"""
+    def active_tasks(self):
+        """Returns a list of tasks that are currently active"""
         from .tasks import ScheduledTask
-        running_tasks: List[ScheduledTask] = []
+        active_tasks: List[ScheduledTask] = []
 
         for task in self.tasks:
             if task.is_active:
-                running_tasks.append(task)
-        return running_tasks
+                active_tasks.append(task)
+        return active_tasks
     
 
-    def get_paused_tasks(self):
+    def paused_tasks(self):
         """Returns a list of tasks that are currently paused"""
         from .tasks import ScheduledTask
         paused_tasks: List[ScheduledTask] = []
@@ -568,7 +599,7 @@ class TaskManager:
         return paused_tasks
     
 
-    def get_failed_tasks(self):
+    def failed_tasks(self):
         """Returns a list of tasks that failed"""
         from .tasks import ScheduledTask
         failed_tasks: List[ScheduledTask] = []
@@ -587,6 +618,9 @@ class TaskManager:
         :param level: The log level. Defaults to "INFO"
         :param kwargs: Additional keyword arguments to pass to `logger.log`
         """
+        if isinstance(msg, str) and not msg.endswith("\n"):
+            msg = f"{msg}\n"
+
         level = getattr(logging, level.upper())
         try:
             return self.logger.log(level, msg, **kwargs)
@@ -661,7 +695,7 @@ class TaskManager:
         task = speak('Hey!!')
         ```
         """
-        from .tasks import make_task_decorator_for_manager
+        from .decorators import make_task_decorator_for_manager
         task_decorator_for_manager = make_task_decorator_for_manager(self)
         func_decorator = task_decorator_for_manager(
             schedule=schedule,

@@ -6,7 +6,7 @@ import asyncio
 from .abc import AbstractBaseSchedule
 from .baseschedule import ScheduleType
 from .descriptors import SetOnceDescriptor
-from ._utils import validate_schedules_iterable, _strip_description
+from ._utils import validate_schedules_iterable, _strip_description, underscore_string
 from .exceptions import InsufficientArguments
 
 
@@ -37,7 +37,7 @@ class ScheduleGroup(AbstractBaseSchedule):
     
     
     def is_due(self) -> bool:
-        # If any of the schedules in the group is due, the group is due
+        """If any of the schedules in the group is due, the group is due."""
         return any(schedule.is_due() for schedule in self.schedules)
     
 
@@ -52,59 +52,49 @@ class ScheduleGroup(AbstractBaseSchedule):
             """Yield schedule functions for each schedule in the group."""
             for schedule in self.schedules:
                 yield schedule.make_schedule_func_for_task(task)
-
-        def done_callback(future: asyncio.Future) -> None:
-            """
-            Handles exception propagation, adding the result to the task and rescheduling the
-            a new schedule function if the current one completes successfully
-            """
-            nonlocal created_futures
-            try:
-                # try to get the result of the future
-                result = future.result()
-            except Exception as exc:
-                created_futures.remove(future)
-                # if an exception occurred, set the exception attribute of the task
-                future.task._exc = exc
-            else:
-                # If the future completed successfully,
-                # add the result to the task, and
-                future.task._add_result(result)
-                created_futures.remove(future)
-                # reschedule the schedule function
-                create_future_for_schedule_func(future.task, future.schedule_func, *future.args, **future.kwargs)
-            finally:
-                del future
-            return
         
-        def create_future_for_schedule_func(task: ScheduledTask, schedule_func: Callable[..., Coroutine], *args, **kwargs) -> asyncio.Future:
+        def create_future_for_schedule_func(
+                task: ScheduledTask, 
+                schedule_func: Callable[..., Coroutine], 
+                *args, **kwargs
+            ) -> asyncio.Future:
             """
             Make futures that can run concurrently in the background
             for each schedule function, and pass argument and keyword arguments
             passed to this function to each schedule function
             """
-            nonlocal created_futures
-            future = task.manager._make_future(schedule_func, False, *args, **kwargs)
-            # Reference the task, schedule function, and arguments and keyword arguments
-            future.task = task
-            future.schedule_func = schedule_func
-            future.args = args
-            future.kwargs = kwargs
+            future = task.manager._run_in_workthread(schedule_func, False, *args, **kwargs)
+
+            def _done_callback(future: asyncio.Future) -> None:
+                """
+                Handles exception propagation, adding the result to the task and rescheduling the
+                a new schedule function if the current one completes successfully
+                """
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    task._exc = exc
+                else:
+                    # If the future completed successfully,
+                    # add the result to the task, and
+                    task._add_result(result)
+                    # reschedule the schedule function
+                    create_future_for_schedule_func(task, schedule_func, *args, **kwargs)
+                return
+            
             # Add a callback to the future, this callback handles exception
             # propagation, adding the result to the task and rescheduling the
             # a new schedule function if the current one completes successfully
-            future.add_done_callback(done_callback)
+            future.add_done_callback(_done_callback)
             created_futures.append(future)
             return future
 
         async def schedulegroup_func(*args, **kwargs):
-            nonlocal task
-            nonlocal created_futures
             for schedule_func in schedule_funcs():
                 create_future_for_schedule_func(task, schedule_func, *args, **kwargs)
 
             try:
-                # Wait indefinitely, until an exception occurs or the task is cancelled
+                # Wait indefinitely, until an exception occurs or the task is stopped
                 while task._exc is None:
                     await asyncio.sleep(0.0001)
                     continue
@@ -113,18 +103,16 @@ class ScheduleGroup(AbstractBaseSchedule):
                     # this allows any exceptions that occurred in the schedule functions
                     # to be propagated properly to the task where it will be handled
                     raise task._exc
-            except asyncio.CancelledError:
-                # If the task is cancelled (at runtime or due to system/keyboard exit), cancel all the created futures
-                if task.cancelled is True:
-                    # future.cancel will modify the created_futures deque while iterating
-                    # so we need to create a copy of the deque to avoid modifying it
-                    for future in created_futures[:]:
-                        future.cancel()
-                # Raise the CancelledError after doing necessary cleanup
-                raise
+            except Exception as exc:
+                # If any exception occurs, cancel all the created futures
+                # future.cancel will modify the created_futures deque while iterating
+                # so we need to create a copy of the deque to avoid modifying it
+                for future in created_futures:
+                    future.cancel()
+                # Raise the Exception after doing necessary cleanup
+                raise exc
         
-        schedulegroup_func.__name__ = task.name
-        schedulegroup_func.__qualname__ = task.name
+        schedulegroup_func.__qualname__ = f"schedulegroup_func_for_{underscore_string(task.name)}"
         return schedulegroup_func
     
 

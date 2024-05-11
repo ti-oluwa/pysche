@@ -5,7 +5,7 @@ try:
 except ImportError:
     from backports import zoneinfo
 
-from .manager import TaskManager
+from .taskmanager import TaskManager
 from .baseschedule import Schedule, ScheduleType
 from ._utils import (
     parse_datetime, MinMaxValidator as minmax,

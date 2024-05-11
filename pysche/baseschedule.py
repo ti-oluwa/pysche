@@ -2,9 +2,10 @@ from __future__ import annotations
 from typing import List, TypeVar, Union, Callable, Coroutine, Any
 import asyncio
 import datetime
+from asgiref.sync import sync_to_async
 
 from .abc import AbstractBaseSchedule
-from ._utils import utcoffset_to_zoneinfo, get_datetime_now, _strip_description
+from ._utils import utcoffset_to_zoneinfo, get_datetime_now, _strip_description, underscore_string
 from .descriptors import SetOnceDescriptor, AttributeDescriptor
 
 
@@ -72,7 +73,6 @@ class Schedule(AbstractBaseSchedule):
     def make_schedule_func_for_task(self, scheduledtask) -> Callable[..., Coroutine[Any, Any, None]]:
         from .tasks import ScheduledTask
         task: ScheduledTask = scheduledtask
-        is_due = task.manager._sync_to_async(self.is_due)
 
         async def schedule_func(*args, **kwargs) -> None:
             # If the schedule has a wait duration, sleep for the duration before running the task
@@ -84,13 +84,12 @@ class Schedule(AbstractBaseSchedule):
                 await asyncio.sleep(0.0001)
                 continue
             
-            if await is_due() is True:
+            if await sync_to_async(self.is_due)() is True:
                 task._last_executed_at = get_datetime_now(self.tz)
                 return await task.func(*args, **kwargs)
             return NO_RESULT
 
-        schedule_func.__name__ = task.name
-        schedule_func.__qualname__ = task.name
+        schedule_func.__qualname__ = f"schedule_func_for_{underscore_string(task.name)}"
         return schedule_func
 
     

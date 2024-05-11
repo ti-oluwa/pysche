@@ -29,7 +29,7 @@ def get_logger(
     :return: `logging.Logger` instance
     """
     if not any((logfile_path, to_console)):
-        raise ValueError("At least one of `logfile_path` or `to_console` has to be truthy.")
+        raise ValueError("At least one of `logfile_path` or `to_console` has to be provided.")
     
     if logfile_path is not None:
         with sfh.FileHandler(logfile_path, exists_ok=True, not_found_ok=True) as hdl:

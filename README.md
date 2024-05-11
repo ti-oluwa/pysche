@@ -18,7 +18,6 @@ pysche is for you if you need:
 - Proper exception handling and reporting of errors that occur during scheduled task execution.
 - To pause, resume, cancel and update tasks at runtime.
 - To cache result of task execution in background.
-- Callback execution for specific event triggers.
 
 ## Usage
 

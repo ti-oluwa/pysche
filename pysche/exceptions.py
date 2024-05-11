@@ -19,9 +19,9 @@ class UnregisteredTask(TaskError):
     pass
 
 
-class CancelTask(TaskError):
+class StopTask(TaskError):
     """
-    Raised to request that a task be cancelled.
+    Raised to request that a task be stopped.
 
     This exception can be raised from within a task to request that the task be cancelled.
     Example:
@@ -38,7 +38,7 @@ class CancelTask(TaskError):
         ...
         if some_condition:
             # Cancel the task
-            raise pysche.CancelTask
+            raise pysche.StopTask
         else:
             # do something else
             ...

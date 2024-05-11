@@ -7,7 +7,7 @@ try:
 except ImportError:
     from backports import zoneinfo
 
-from .manager import TaskManager
+from .taskmanager import TaskManager
 from .descriptors import SetOnceDescriptor
 from ._utils import _strip_description
 
@@ -68,7 +68,7 @@ class AbstractBaseSchedule(ABC):
         """
         from .tasks import ScheduledTask
         def decorator(func: Callable) -> Callable[..., ScheduledTask]:
-            """Create function that will run on this schedule"""
+            """Creates function that will run on this schedule"""
             if not callable(func):
                 raise TypeError(
                     f"Decorated object must be a callable not type: {type(func).__name__}"

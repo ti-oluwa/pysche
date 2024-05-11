@@ -4,7 +4,7 @@ import unittest
 
 from pysche.schedules import run_afterevery
 from pysche.tasks import ScheduledTask, TaskCallback, CallbackTrigger
-from pysche.manager import TaskManager
+from pysche.pysche.taskmanager import TaskManager
 from pysche.exceptions import TaskExecutionError
 from tests.mock import count_to_ten, raise_exception, print_helloworld, generic_callback
 

@@ -6,7 +6,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 import os
 import datetime
 
-from pysche.manager import TaskManager
+from pysche.pysche.taskmanager import TaskManager
 from pysche.schedules import run_afterevery
 from pysche.tasks import ScheduledTask
 from pysche.exceptions import UnregisteredTask
