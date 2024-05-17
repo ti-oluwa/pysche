@@ -2,7 +2,7 @@ from __future__ import annotations
 from collections import deque
 import asyncio
 import time
-from typing import Callable, Any, Coroutine, List, Optional, Tuple, Dict, Union
+from typing import Callable, Any, Coroutine, List, Optional, Tuple, Dict, Union, TypeVar
 import functools
 import datetime
 try:
@@ -24,7 +24,7 @@ from .exceptions import StopTask, TaskError, TaskExecutionError
 class TaskResult:
     """Encapsulates a result returned by a task after execution."""
 
-    task: ScheduledTask
+    task: TaskType
     """The task that returned the result"""
     index: int
     """The current execution index of the task when the result was returned"""
@@ -363,7 +363,7 @@ class ScheduledTask:
         return hash(self.id)
     
 
-    def __eq__(self, other: ScheduledTask) -> bool:
+    def __eq__(self, other: TaskType) -> bool:
         if not isinstance(other, self.__class__):
             raise NotImplementedError(
                 f"Cannot compare '{self.__class__.__name__}' with '{other.__class__.__name__}'."
@@ -456,7 +456,7 @@ class ScheduledTask:
         return None
     
 
-    def pause_after(self, delay: int | float, /) -> ScheduledTask:
+    def pause_after(self, delay: int | float, /) -> TaskType:
         """
         Create a new task to pause this task after specified delay in seconds
 
@@ -466,7 +466,7 @@ class ScheduledTask:
         return self.manager.run_after(delay, self.pause, task_name=f"pause_{self.name}_after_{delay}s")
 
 
-    def pause_for(self, seconds: int | float, /) -> ScheduledTask:
+    def pause_for(self, seconds: int | float, /) -> TaskType:
         """
         Pauses this task and creates a new task to resume this task after the specified number of seconds
 
@@ -477,7 +477,7 @@ class ScheduledTask:
         return self.manager.run_after(seconds, self.resume, task_name=f"resume_{self.name}_after_{seconds}s")
 
 
-    def pause_until(self, time: str, /) -> ScheduledTask:
+    def pause_until(self, time: str, /) -> TaskType:
         """
         Pauses this task and creates a new task to resume this task at specified time. 
 
@@ -488,7 +488,7 @@ class ScheduledTask:
         return self.manager.run_at(time, self.resume, task_name=f"resume_{self.name}_at_{underscore_datetime(time)}")
     
 
-    def pause_on(self, datetime: str, /, tz: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> ScheduledTask:
+    def pause_on(self, datetime: str, /, tz: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> TaskType:
         """
         Creates a new task to pause this task on the specified datetime.
 
@@ -500,7 +500,7 @@ class ScheduledTask:
         return self.manager.run_on(datetime, self.pause, tz=tz, task_name=f"pause_{self.name}_on_{underscore_datetime(datetime)}")
     
 
-    def pause_at(self, time: str, /) -> ScheduledTask:
+    def pause_at(self, time: str, /) -> TaskType:
         """
         Creates a new task that pauses this task at a specified time.
 
@@ -521,7 +521,6 @@ class ScheduledTask:
         if self.stopped:
             return
         
-        print(f"Stopping {self.name} task...")
         task_future = self.manager._get_future(self.id)
         if task_future is None:
             if self.is_active or self.last_executed_at:
@@ -536,7 +535,7 @@ class ScheduledTask:
         return None
 
 
-    def stop_after(self, delay: int | float, /) -> ScheduledTask:
+    def stop_after(self, delay: int | float, /) -> TaskType:
         """
         Creates a new task that stops this task after specified delay in seconds
 
@@ -546,7 +545,7 @@ class ScheduledTask:
         return self.manager.run_after(delay, self.stop, task_name=f"stop_{self.name}_after_{delay}s")
     
 
-    def stop_at(self, time: str, /) -> ScheduledTask:
+    def stop_at(self, time: str, /) -> TaskType:
         """
         Creates a new task that stops this task at a specified time
 
@@ -556,7 +555,7 @@ class ScheduledTask:
         return self.manager.run_at(time, self.stop, task_name=f"stop_{self.name}_at_{underscore_datetime(time)}")
     
 
-    def stop_on(self, datetime: str, /, tz: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> ScheduledTask:
+    def stop_on(self, datetime: str, /, tz: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> TaskType:
         """
         Creates a new task that stops this task at the specified datetime
 
@@ -574,3 +573,34 @@ class ScheduledTask:
         """
         return list(self.resultset) if self.resultset else []
 
+
+    def add_error_callback(self, callback: Callable) -> None:
+        """
+        Add an error callback to a task function. The callback is called on any exception in the task.
+
+        :param callback: The callback to be called on exception in the task.
+        The callback should accept two arguments: the task and the exception.
+
+        NOTE: The callback is executed in a non-blocking manner.
+        """
+        if not callable(callback):
+            raise TypeError("callback must be a callable.")
+        if not asyncio.iscoroutinefunction(callback):
+            callback = sync_to_async(callback)
+
+        task_func = self.func
+
+        @functools.wraps(task_func)
+        async def wrapper(*args, **kwargs) -> TaskType:
+            try:
+                result = await task_func(*args, **kwargs)
+            except Exception as exc:
+                self.manager._run_in_workthread(callback, False, self, exc)
+                raise exc
+            return result
+        
+        self.func = wrapper
+        return None
+
+
+TaskType = TypeVar("TaskType", bound=ScheduledTask)

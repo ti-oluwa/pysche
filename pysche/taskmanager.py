@@ -93,9 +93,6 @@ class TaskManager:
             base_level="DEBUG",
             date_format="%Y-%m-%d %H:%M:%S (%z)"
         )
-        # Register the shutdown method to be called when the program exits
-        # Ensures that all resources are cleaned up properly on exit
-        atexit.register(self.shutdown, wait=True)
         return None
     
     
@@ -132,13 +129,13 @@ class TaskManager:
         return not self.__gt__(other)
     
 
-    def __getitem__(self, name_or_id: str):
-        task = self.get_task(name_or_id)
-        if not task:
+    def __getitem__(self, name_or_tag: str):
+        tasks = self.get_tasks(name_or_tag)
+        if not tasks:
             raise KeyError(
-                f"Task '{name_or_id}' is not registered with {self.name}"
+                f"No task with name or tag '{name_or_tag}' is managed by {self.name}"
             )
-        return task
+        return tasks
     
 
     def __contains__(self, name_or_id: str) -> bool:
@@ -154,8 +151,8 @@ class TaskManager:
     @property
     def tasks(self):
         """Returns a list of scheduled tasks that are currently being managed"""
-        from .tasks import ScheduledTask
-        tasks: List[ScheduledTask] = list(filter(lambda task: task.manager == self, self._tasks))
+        from .tasks import TaskType
+        tasks: List[TaskType] = list(filter(lambda task: task.manager == self, self._tasks))
         return tasks
     
     @property
@@ -269,6 +266,9 @@ class TaskManager:
             # If not, just wait for manager to start successfully
             while not self.is_active:
                 continue
+        # Register the shutdown method to be called when the program exits
+        # Ensures that all resources are cleaned up properly on exit
+        atexit.register(self.shutdown, wait=True)
         return None
         
 
@@ -306,7 +306,6 @@ class TaskManager:
         """
         Cancel all scheduled tasks and stop the manager from executing any more tasks.
         """
-        print("Stopping...")
         if not self.is_active:
             raise RuntimeError(f"{self.name} has not started task execution yet.\n")
         
@@ -341,7 +340,6 @@ class TaskManager:
         if self._shutdown:
             return
         
-        print("Starting Shut down...")
         # stop all task execution
         if self.is_active:
             self.stop()
@@ -351,10 +349,8 @@ class TaskManager:
             self.join()
 
         if not self._loop.is_closed():
-            print("Closing loop...")
             self._loop.close()
 
-        print("Shutdown complete!")
         self._shutdown = True
         return None
 
@@ -369,8 +365,8 @@ class TaskManager:
 
     def get_tasks(self, name_or_tag: str, /):
         """Returns a list of tasks with the specified name or tags"""
-        from .tasks import ScheduledTask
-        matches: List[ScheduledTask] = []
+        from .tasks import TaskType
+        matches: List[TaskType] = []
 
         for task in self.tasks:
             if task.name == name_or_tag or name_or_tag in task.tags:
@@ -579,8 +575,8 @@ class TaskManager:
 
     def active_tasks(self):
         """Returns a list of tasks that are currently active"""
-        from .tasks import ScheduledTask
-        active_tasks: List[ScheduledTask] = []
+        from .tasks import TaskType
+        active_tasks: List[TaskType] = []
 
         for task in self.tasks:
             if task.is_active:
@@ -590,8 +586,8 @@ class TaskManager:
 
     def paused_tasks(self):
         """Returns a list of tasks that are currently paused"""
-        from .tasks import ScheduledTask
-        paused_tasks: List[ScheduledTask] = []
+        from .tasks import TaskType
+        paused_tasks: List[TaskType] = []
 
         for task in self.tasks:
             if task.is_paused:
@@ -601,8 +597,8 @@ class TaskManager:
 
     def failed_tasks(self):
         """Returns a list of tasks that failed"""
-        from .tasks import ScheduledTask
-        failed_tasks: List[ScheduledTask] = []
+        from .tasks import TaskType
+        failed_tasks: List[TaskType] = []
 
         for task in self.tasks:
             if task.failed:
@@ -674,7 +670,7 @@ class TaskManager:
         manager = pysche.TaskManager()
         s = pysche.schedules
 
-        @manager.newtask(s.run_afterevery(seconds=2))
+        @manager.task(s.run_afterevery(seconds=2))
         def speak(msg):
             print(msg)
 
@@ -691,7 +687,7 @@ class TaskManager:
         def speak(msg):
             print(msg)
 
-        speak = manager.newtask(s.run_afterevery(seconds=2), speak)
+        speak = manager.task(s.run_afterevery(seconds=2), speak)
         task = speak('Hey!!')
         ```
         """

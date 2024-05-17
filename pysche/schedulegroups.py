@@ -1,7 +1,8 @@
 from __future__ import annotations
 from collections import deque
-from typing import Any, Callable, Coroutine, Iterable, Iterator, Union, List
+from typing import Any, Callable, Coroutine, Iterator, NoReturn, Union, List
 import asyncio
+import atexit
 
 from .abc import AbstractBaseSchedule
 from .baseschedule import ScheduleType
@@ -41,11 +42,32 @@ class ScheduleGroup(AbstractBaseSchedule):
         return any(schedule.is_due() for schedule in self.schedules)
     
 
-    def make_schedule_func_for_task(self, scheduledtask) -> Callable[..., Coroutine[Any, Any, None]]:
-        from .tasks import ScheduledTask
-        task: ScheduledTask = scheduledtask
+    def make_schedule_func_for_task(self, scheduledtask) -> Callable[..., Coroutine[Any, Any, NoReturn]]:
+        from .tasks import TaskType
+        task: TaskType = scheduledtask
         task._exc = None
+        # Use a deque to manage record of created futures for thread-safety
         created_futures: deque[asyncio.Future] = deque()
+
+        @atexit.register
+        def cancel_created_futures_before_exit():
+            """
+            Ensures that all futures created are properly 
+            cancelled and awaited on program exit
+            to avoid warning/error thrown by asyncio
+            """
+            nonlocal created_futures
+            needs_wait = []
+            for future in created_futures:
+                future.cancel()
+                # convert concurrent.futures.Future to awaitable asyncio.Future
+                wrapped = asyncio.wrap_future(future)
+                # add to list of futures that needs to be wait for to cancel
+                needs_wait.append(wrapped)
+            
+            asyncio.wait(needs_wait)
+            return
+        
         
         # Use a generator to ensure creation of schedule functions is lazy
         def schedule_funcs():
@@ -54,7 +76,7 @@ class ScheduleGroup(AbstractBaseSchedule):
                 yield schedule.make_schedule_func_for_task(task)
         
         def create_future_for_schedule_func(
-                task: ScheduledTask, 
+                task: TaskType, 
                 schedule_func: Callable[..., Coroutine], 
                 *args, **kwargs
             ) -> asyncio.Future:
@@ -105,10 +127,10 @@ class ScheduleGroup(AbstractBaseSchedule):
                     raise task._exc
             except Exception as exc:
                 # If any exception occurs, cancel all the created futures
-                # future.cancel will modify the created_futures deque while iterating
-                # so we need to create a copy of the deque to avoid modifying it
+                # and await them properly to avoid warning thrown by asyncio
                 for future in created_futures:
                     future.cancel()
+                    await asyncio.wrap_future(future)
                 # Raise the Exception after doing necessary cleanup
                 raise exc
         

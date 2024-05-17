@@ -43,10 +43,13 @@ s = pysche.schedules
 def send_message(msg: str):
     print(msg)
 
+def main():
+    with manager.execute_till_idle():
+        task = send_message("Hello friend!")
+        print(task.name)
 
-with manager.execute_till_idle():
-    task = send_message("Hello friend!")
-    print(task.name)
+if __name__ == "__main__":
+    main()
 ```
 
 Now that we have an overview of these mechanisms. Let's take an in-depth look at each mechanism, their nuances and how they can/should be utilized.

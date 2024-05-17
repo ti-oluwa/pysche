@@ -71,8 +71,8 @@ class Schedule(AbstractBaseSchedule):
     
 
     def make_schedule_func_for_task(self, scheduledtask) -> Callable[..., Coroutine[Any, Any, None]]:
-        from .tasks import ScheduledTask
-        task: ScheduledTask = scheduledtask
+        from .tasks import TaskType
+        task: TaskType = scheduledtask
 
         async def schedule_func(*args, **kwargs) -> None:
             # If the schedule has a wait duration, sleep for the duration before running the task
