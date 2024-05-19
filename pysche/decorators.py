@@ -2,7 +2,7 @@ from typing import Any, Callable, List, Optional, Union
 import functools
 
 from .baseschedule import ScheduleType
-from .tasks import ScheduledTask, TaskType
+from .tasks import ScheduledTask
 from .taskmanager import TaskManager
 from .schedulegroups import ScheduleGroup
 from ._utils import underscore_string
@@ -20,7 +20,7 @@ def task(
     stop_on_error: bool = False,
     max_retries: int = 0,
     start_immediately: bool = True,
-) -> Callable[[Callable], Callable[..., TaskType]]:
+) -> Callable[[Callable], Callable[..., ScheduledTask]]:
     """
     Function decorator. Decorated function will return a new scheduled task when called.
     The returned task will be managed by the specified manager and will be executed according to the specified schedule.
@@ -56,7 +56,7 @@ def task(
 
 
 
-def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Callable[[Callable], Callable[..., TaskType]]]:
+def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Callable[[Callable], Callable[..., ScheduledTask]]]:
     """
     Convenience function for creating a task decorator for a given manager. This is useful when you want to create multiple
     tasks that are all managed by the same manager.
@@ -107,7 +107,7 @@ def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Ca
         stop_on_error: bool = False,
         max_retries: int = 0,
         start_immediately: bool = True,
-    ) -> Callable[[Callable], TaskType]:
+    ) -> Callable[[Callable], Callable[..., ScheduledTask]]:
         return task_decorator_for_manager(
             schedule,
             name=name,
@@ -128,7 +128,7 @@ def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Ca
 
   
 
-def on_error(callback: Callable) -> Callable[..., Callable[..., Union[TaskType, Any]]]:
+def on_error(callback: Callable) -> Callable[..., Callable[..., Union[ScheduledTask, Any]]]:
     """
     Adds an error callback to the task returned by the decorated task function.
     The callback will be called when any error is encountered during the task's execution.
@@ -159,9 +159,9 @@ def on_error(callback: Callable) -> Callable[..., Callable[..., Union[TaskType, 
         main()
     ```
     """
-    def decorator(taskfunc: Callable[..., Union[TaskType, Any]]) -> Callable[..., Union[TaskType, Any]]:
+    def decorator(taskfunc: Callable[..., ScheduledTask]) -> Callable[..., ScheduledTask]:
         @functools.wraps(taskfunc)
-        def wrapper(*args, **kwargs) -> TaskType:
+        def wrapper(*args, **kwargs) -> ScheduledTask:
             task = taskfunc(*args, **kwargs)
             if not isinstance(task, ScheduledTask):
                 raise ValueError(

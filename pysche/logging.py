@@ -1,10 +1,9 @@
 from typing import Optional
 import logging
 from logging.handlers import RotatingFileHandler
-import simple_file_handler as sfh
 from rich.console import Console
 from rich.logging import RichHandler
-
+import os
 
 
 def get_logger(
@@ -31,10 +30,8 @@ def get_logger(
     if not any((logfile_path, to_console)):
         raise ValueError("At least one of `logfile_path` or `to_console` has to be provided.")
     
-    if logfile_path is not None:
-        with sfh.FileHandler(logfile_path, exists_ok=True, not_found_ok=True) as hdl:
-            if hdl.file_ext != ".log":
-                raise ValueError('Invalid extension type for log file')
+    if logfile_path and os.path.splitext(logfile_path)[-1].lower() != ".log":
+        raise ValueError('Invalid extension type for log file')    
     
     logger = logging.getLogger(name)
     if logfile_path is not None:

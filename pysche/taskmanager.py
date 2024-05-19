@@ -129,18 +129,6 @@ class TaskManager:
         return not self.__gt__(other)
     
 
-    def __getitem__(self, name_or_tag: str):
-        tasks = self.get_tasks(name_or_tag)
-        if not tasks:
-            raise KeyError(
-                f"No task with name or tag '{name_or_tag}' is managed by {self.name}"
-            )
-        return tasks
-    
-
-    def __contains__(self, name_or_id: str) -> bool:
-        return self.is_managing(name_or_id)
-
     @property
     def is_active(self) -> bool:
         """
@@ -151,8 +139,8 @@ class TaskManager:
     @property
     def tasks(self):
         """Returns a list of scheduled tasks that are currently being managed"""
-        from .tasks import TaskType
-        tasks: List[TaskType] = list(filter(lambda task: task.manager == self, self._tasks))
+        from .tasks import ScheduledTask
+        tasks: List[ScheduledTask] = list(filter(lambda task: task.manager == self, self._tasks))
         return tasks
     
     @property
@@ -296,10 +284,13 @@ class TaskManager:
         try:
             self.start()
             yield
+        except Exception as exc:
+            raise exc
+        else:
             self.join()
         finally:
             self.log(f"{self.name} is idle. Exiting...", level="INFO")
-            return None
+        return None
     
     
     def stop(self) -> None:
@@ -365,8 +356,8 @@ class TaskManager:
 
     def get_tasks(self, name_or_tag: str, /):
         """Returns a list of tasks with the specified name or tags"""
-        from .tasks import TaskType
-        matches: List[TaskType] = []
+        from .tasks import ScheduledTask
+        matches: List[ScheduledTask] = []
 
         for task in self.tasks:
             if task.name == name_or_tag or name_or_tag in task.tags:
@@ -572,38 +563,23 @@ class TaskManager:
             task.stop()
         return None
     
-
+    @property
     def active_tasks(self):
-        """Returns a list of tasks that are currently active"""
-        from .tasks import TaskType
-        active_tasks: List[TaskType] = []
-
         for task in self.tasks:
             if task.is_active:
-                active_tasks.append(task)
-        return active_tasks
+                yield task
     
-
+    @property
     def paused_tasks(self):
-        """Returns a list of tasks that are currently paused"""
-        from .tasks import TaskType
-        paused_tasks: List[TaskType] = []
-
         for task in self.tasks:
             if task.is_paused:
-                paused_tasks.append(task)
-        return paused_tasks
+                yield task
     
-
+    @property
     def failed_tasks(self):
-        """Returns a list of tasks that failed"""
-        from .tasks import TaskType
-        failed_tasks: List[TaskType] = []
-
         for task in self.tasks:
             if task.failed:
-                failed_tasks.append(task)
-        return failed_tasks
+                yield task
     
 
     def log(self, msg: object, level: str = "INFO", **kwargs) -> None:
