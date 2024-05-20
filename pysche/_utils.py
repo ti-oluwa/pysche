@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Optional, TextIO, final, Iterable
+from typing import Any, Optional, TextIO, final, Iterable, Coroutine, Union
 import datetime
 import sys
 try:
@@ -8,6 +8,7 @@ except ImportError:
     from backports import zoneinfo
 import random
 import uuid
+import asyncio
 
 from .descriptors import null
 
@@ -321,3 +322,25 @@ def _strip_description(description: str, remove_prefix: Optional[str] = None) ->
     if remove_prefix:
         description = description.removeprefix(remove_prefix)
     return description.strip().rstrip(".")
+
+
+def await_future(future: asyncio.Future, *, suppress_exc: bool = False) -> Any | None:
+    """
+    Await in a purely synchronous context.
+    Calling this function will block the current thread until the future is resolved.
+
+    Do not call this function in an asynchronous context.
+
+    :param future: The future to await.
+    :param suppress_exc: Whether to suppress exceptions or not.
+    :return: The result of the awaited future or 
+    None if an exception occurred and suppress_exc is True.
+    """
+    async def wrapper() -> Any | None:
+        try:
+            return await future
+        except (BaseException, Exception) as exc:
+            if not suppress_exc:
+                raise exc
+        return None
+    return asyncio.run(wrapper())

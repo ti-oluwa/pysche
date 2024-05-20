@@ -3,12 +3,11 @@ from collections import deque
 from typing import Any, Callable, Coroutine, Iterator, NoReturn, Union, List
 import asyncio
 import atexit
-from asgiref.sync import sync_to_async, async_to_sync
 
 from .abc import AbstractBaseSchedule
 from .baseschedule import ScheduleType
 from .descriptors import SetOnceDescriptor
-from ._utils import validate_schedules_iterable, _strip_description, underscore_string
+from . import _utils
 from .exceptions import InsufficientArguments
 
 
@@ -20,7 +19,7 @@ class ScheduleGroup(AbstractBaseSchedule):
     tasks doing the same thing but on different schedules.
     """
 
-    schedules = SetOnceDescriptor(tuple, validators=[validate_schedules_iterable])
+    schedules = SetOnceDescriptor(tuple, validators=[_utils.validate_schedules_iterable])
     """A tuple containing the schedules in the group."""
     
     def __init__(self, *schedules: ScheduleType) -> None:
@@ -51,23 +50,17 @@ class ScheduleGroup(AbstractBaseSchedule):
         created_futures: deque[asyncio.Future] = deque()
 
         @atexit.register
-        @async_to_sync
-        async def cancel_created_futures_before_exit():
+        def cancel_created_futures_before_exit():
             """
             Ensures that all futures created are properly 
             cancelled and awaited on program exit
             to avoid warning/error thrown by asyncio
             """
             nonlocal created_futures
-            needs_wait = []
             for future in created_futures.copy():
-                future.cancel()
-                # convert concurrent.futures.Future to awaitable asyncio.Future
-                wrapped = asyncio.wrap_future(future)
-                # add to list of futures that needs to be wait for to cancel
-                needs_wait.append(wrapped)
-            if needs_wait:
-                await asyncio.wait(needs_wait)
+                if not future.done():
+                    future.cancel()
+                    _utils.await_future(future, suppress_exc=True)
             return
         
         
@@ -92,11 +85,11 @@ class ScheduleGroup(AbstractBaseSchedule):
             def _done_callback(future: asyncio.Future) -> None:
                 """
                 Handles exception propagation, adding the result to the task and rescheduling the
-                a new schedule function if the current one completes successfully
+                a new schedule function if the current one completes successfully.
                 """
                 try:
                     result = future.result()
-                except Exception as exc:
+                except (BaseException, Exception) as exc:
                     task._exc = exc
                 else:
                     # If the future completed successfully,
@@ -133,11 +126,10 @@ class ScheduleGroup(AbstractBaseSchedule):
                 # and await them properly to avoid warning thrown by asyncio
                 for future in created_futures.copy():
                     future.cancel()
-                    await asyncio.wrap_future(future)
                 # Raise the Exception after doing necessary cleanup
                 raise exc
         
-        schedulegroup_func.__qualname__ = f"schedulegroup_func_for_{underscore_string(task.name)}"
+        schedulegroup_func.__qualname__ = f"schedulegroup_func_for_{_utils.underscore_string(task.name)}"
         return schedulegroup_func
     
 
@@ -196,12 +188,12 @@ class ScheduleGroup(AbstractBaseSchedule):
         first_schedule: ScheduleType = schedules.pop(0)
         last_schedule: ScheduleType = schedules.pop(-1)
 
-        pre_desc = _strip_description(first_schedule.__describe__())
+        pre_desc = _utils._strip_description(first_schedule.__describe__())
         if schedules:
-            mid_desc = ", ".join(_strip_description(schedule.__describe__().lower(), "task will run") for schedule in schedules)
+            mid_desc = ", ".join(_utils._strip_description(schedule.__describe__().lower(), "task will run") for schedule in schedules)
         else:
             mid_desc = ""
-        post_desc = f"{_strip_description(last_schedule.__describe__().lower(), "task will run")}"
+        post_desc = f"{_utils._strip_description(last_schedule.__describe__().lower(), "task will run")}"
 
         if not mid_desc:
             return f"{pre_desc} and {post_desc}."

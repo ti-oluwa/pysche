@@ -56,7 +56,7 @@ def task(
 
 
 
-def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Callable[[Callable], Callable[..., ScheduledTask]]]:
+def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[[Callable], Callable[[Callable], Callable[..., ScheduledTask]]]:
     """
     Convenience function for creating a task decorator for a given manager. This is useful when you want to create multiple
     tasks that are all managed by the same manager.
@@ -121,14 +121,14 @@ def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[..., Ca
         )
     
     manager_name = underscore_string(manager.name)
-    decorator_wrapper.__name__ = f"{task.__name__}_for_{manager_name}"
-    decorator_wrapper.__qualname__ = f"{task.__qualname__}_for_{manager_name}"
+    decorator_wrapper.__name__ = f"{task.__name__}_decorator_for_{manager_name}"
+    decorator_wrapper.__qualname__ = f"{task.__qualname__}_decorator_for_{manager_name}"
     return decorator_wrapper
 
 
   
 
-def on_error(callback: Callable) -> Callable[..., Callable[..., Union[ScheduledTask, Any]]]:
+def onerror(callback: Callable) -> Callable[..., Callable[..., Union[ScheduledTask, Any]]]:
     """
     Adds an error callback to the task returned by the decorated task function.
     The callback will be called when any error is encountered during the task's execution.
@@ -146,7 +146,7 @@ def on_error(callback: Callable) -> Callable[..., Callable[..., Union[ScheduledT
     def error_callback(task, error):
         print(f"Task {task} errored with exception: {error}")
 
-    @pysche.on_error(error_callback)
+    @pysche.onerror(error_callback)
     @manager.task(s.run_afterevery(seconds=10))
     def function():
         raise Exception("An error occurred")

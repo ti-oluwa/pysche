@@ -136,12 +136,21 @@ class TaskManager:
         """
         return self._continue is True and self._loop.is_running()
     
+
+    # Why use a generator instead of a list?
+    # Generators are more memory efficient, hence, 
+    # they are preferrable for when the list of tasks is large.
+    # Also, using a generator allows for lazy evaluation of the tasks.
+    # This means that tasks added to the manager after the generator is created
+    # will still be included in the list of tasks returned by the generator.
     @property
     def tasks(self):
-        """Returns a list of scheduled tasks that are currently being managed"""
+        """Generator that yields all tasks managed by this manager"""
         from .tasks import ScheduledTask
-        tasks: List[ScheduledTask] = list(filter(lambda task: task.manager == self, self._tasks))
-        return tasks
+        self._tasks: deque[ScheduledTask]
+        for task in self._tasks:
+            if task.manager == self:
+                yield task
     
     @property
     def errors(self) -> Dict[str, List[Exception]]:
@@ -150,7 +159,7 @@ class TaskManager:
 
         Errors/exceptions are mapped to the name of the task in which they occurred.
         """
-        return { task.name : task.errors for task in self.tasks[:] if task.errors }
+        return { task.name : task.errors for task in self.tasks if task.errors }
     
     @property
     def has_errors(self) -> bool:
@@ -162,10 +171,7 @@ class TaskManager:
         """
         Returns True if the task manager is active and currently has any active task (paused or not)
         """
-        # iterate over a copy of the tasks list, self.tasks[:], instead of the list itself to avoid
-        # runtime error / race conditions that may occur when trying modify the task list while it is been
-        # iterated over.
-        return self.is_active and any([ task.is_active for task in self.tasks[:] ]) is True
+        return self.is_active and list(self.active_tasks)
     
     @property
     def status(self):
@@ -194,7 +200,7 @@ class TaskManager:
         return None
     
 
-    def _run_in_workthread(self, coroutine_func, append: bool = True, *args, **kwargs) -> cf.Future:
+    def _run_in_workthread(self, coroutine_func, append: bool = True, *args, **kwargs) -> asyncio.Future:
         """
         Run a coroutine function in the manager's work thread (background-thread).
 
@@ -209,12 +215,13 @@ class TaskManager:
         # in the manager's work thread (background-thread), use `run_coroutine_threadsafe` for thread safety. 
         # The task created runs concurrently with other tasks in the manager's event loop.
         cf_future = asyncio.run_coroutine_threadsafe(coroutine_func(*args, **kwargs), self._loop)
-
+        aio_future = asyncio.wrap_future(cf_future, loop=self._loop)
+        
         if append is True and isinstance(coroutine_func, ScheduledTask):
-            cf_future.name = coroutine_func.name
-            cf_future.id = coroutine_func.id
-            self._futures.append(cf_future)
-        return cf_future
+            aio_future.name = coroutine_func.name
+            aio_future.id = coroutine_func.id
+            self._futures.append(aio_future)
+        return aio_future
     
 
     def _get_futures(self, name: str) -> List[asyncio.Future]:
@@ -246,7 +253,7 @@ class TaskManager:
             daemon=True
         )
         self._workthread.start()
-        if self.tasks:
+        if self._tasks:
             # If there are any tasks being managed wait for manager to get busy with them
             while not self.is_occupied:
                 continue
@@ -293,9 +300,11 @@ class TaskManager:
         return None
     
     
-    def stop(self) -> None:
+    def stop(self, wait: bool = True) -> None:
         """
         Cancel all scheduled tasks and stop the manager from executing any more tasks.
+
+        :param wait: Wait for all tasks to stop/finish executing before returning
         """
         if not self.is_active:
             raise RuntimeError(f"{self.name} has not started task execution yet.\n")
@@ -305,7 +314,7 @@ class TaskManager:
         # Stops all tasks which eventually cancels all futures before the loop is stopped
         # This helps avoid the warning message that is thrown by the loop when it is stopped
         for task in self.tasks:
-            task.stop()
+            task.stop(wait=wait)
 
         # Stop the loop running in the work thread
         self._loop.call_soon_threadsafe(self._loop.stop)
@@ -333,11 +342,7 @@ class TaskManager:
         
         # stop all task execution
         if self.is_active:
-            self.stop()
-
-        if wait is True:
-            # wait for the manager to finish executing all tasks
-            self.join()
+            self.stop(wait=wait)
 
         if not self._loop.is_closed():
             self._loop.close()
@@ -565,18 +570,21 @@ class TaskManager:
     
     @property
     def active_tasks(self):
+        """Generator that yields all active tasks managed by this manager"""
         for task in self.tasks:
             if task.is_active:
                 yield task
     
     @property
     def paused_tasks(self):
+        """Generator that yields all paused tasks managed by this manager"""
         for task in self.tasks:
             if task.is_paused:
                 yield task
     
     @property
     def failed_tasks(self):
+        """Generator that yields all tasks that failed while being managed by this manager"""
         for task in self.tasks:
             if task.failed:
                 yield task

@@ -11,11 +11,12 @@ except ImportError:
     from backports import zoneinfo
 from dataclasses import dataclass, field, KW_ONLY, InitVar
 from asgiref.sync import sync_to_async
+import warnings
 
 
 from .taskmanager import TaskManager
 from .baseschedule import ScheduleType, NO_RESULT
-from ._utils import get_datetime_now, underscore_string, underscore_datetime, generate_random_id
+from . import _utils
 from .exceptions import StopTask, TaskError, TaskExecutionError
     
 
@@ -33,7 +34,7 @@ class TaskResult:
     """The time the result was created"""
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, 'date_created', get_datetime_now(self.task.schedule.tz))
+        object.__setattr__(self, 'date_created', _utils.get_datetime_now(self.task.schedule.tz))
         return None
 
     # For sorting purposes
@@ -131,7 +132,7 @@ class ScheduledTask:
     """
 
     # Internal attributes
-    id: str = field(init=False, default_factory=generate_random_id)
+    id: str = field(init=False, default_factory=_utils.generate_random_id)
     """A unique identifier for this task"""
     started_at: datetime.datetime = field(default=None, init=False)
     """The time the task was allowed to start execution"""
@@ -268,7 +269,7 @@ class ScheduledTask:
         :param msg: The message to be logged.
         :param exception: If True, the message will be logged as an exception.
         """
-        log_detail = f"{self.__class__.__name__}('{underscore_string(self.name)}', id='{self.id}', manager='{underscore_string(self.manager.name)}') >>> {msg}"
+        log_detail = f"{self.__class__.__name__}('{_utils.underscore_string(self.name)}', id='{self.id}', manager='{_utils.underscore_string(self.manager.name)}') >>> {msg}"
         self.manager.log(log_detail, **kwargs)
         if exception:
             kwargs.pop("level", None)
@@ -285,7 +286,7 @@ class ScheduledTask:
             # Execute the task first if execute_then_wait is True.
             self.log("Task added for execution.")
             self._is_active = True
-            self._last_executed_at = get_datetime_now(self.schedule.tz)
+            self._last_executed_at = _utils.get_datetime_now(self.schedule.tz)
             await self.func(*self.args, **self.kwargs)
 
         schedule_func = self.schedule.make_schedule_func_for_task(self)
@@ -375,7 +376,7 @@ class ScheduledTask:
 
     def __del__(self) -> None:
         # Stop the task if it is still active when it is being deleted
-        self.stop()
+        self.stop(wait=False)
         return None
     
 
@@ -416,7 +417,7 @@ class ScheduledTask:
             # wait for task to start running if manager has start and is able to execute the task
             while not self.is_active:
                 continue
-        self.started_at = get_datetime_now(self.schedule.tz)
+        self.started_at = _utils.get_datetime_now(self.schedule.tz)
         self.log("Task execution started.")
         return None
         
@@ -487,7 +488,7 @@ class ScheduledTask:
         :return: The created task
         """
         self.pause()
-        return self.manager.run_at(time, self.resume, task_name=f"resume_{self.name}_at_{underscore_datetime(time)}")
+        return self.manager.run_at(time, self.resume, task_name=f"resume_{self.name}_at_{_utils.underscore_datetime(time)}")
     
 
     def pause_on(self, datetime: str, /, tz: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> ScheduledTask:
@@ -499,7 +500,7 @@ class ScheduledTask:
         :return: The created task
         """
         tz = tz or self.schedule.tz
-        return self.manager.run_on(datetime, self.pause, tz=tz, task_name=f"pause_{self.name}_on_{underscore_datetime(datetime)}")
+        return self.manager.run_on(datetime, self.pause, tz=tz, task_name=f"pause_{self.name}_on_{_utils.underscore_datetime(datetime)}")
     
 
     def pause_at(self, time: str, /) -> ScheduledTask:
@@ -509,16 +510,14 @@ class ScheduledTask:
         :param time: The time to pause this task. Time should be in the format 'HH:MM:SS'
         :return: The created task
         """
-        return self.manager.run_at(time, self.pause, task_name=f"pause_{self.name}_at_{underscore_datetime(time)}")
+        return self.manager.run_at(time, self.pause, task_name=f"pause_{self.name}_at_{_utils.underscore_datetime(time)}")
     
     
-    def stop(self) -> None:
+    def stop(self, wait: bool = True) -> None:
         """
         Stop task. Stopping a task will invalidate task execution by the manager.
 
         Stopping a task will not prevent the manager from executing other tasks.
-
-        PS: Always call `.join()` after calling `.stop()` to wait for the task to finish executing before proceeding.
         """
         if self.stopped:
             return
@@ -533,7 +532,12 @@ class ScheduledTask:
                     f"Cannot find future for task '{self.name}[id={self.id}]' in '{self.manager.name}'. Tasks are out of sync with futures.\n"
                 )
         else:
-            task_future.cancel()
+            if not task_future.done():
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=RuntimeWarning)
+                    task_future.cancel()
+                    if wait:
+                        _utils.await_future(task_future, suppress_exc=True)
         return None
 
 
@@ -554,7 +558,7 @@ class ScheduledTask:
         :param time: The time to stop this task. Time should be in the format 'HH:MM' or 'HH:MM:SS'
         :return: The created task
         '"""
-        return self.manager.run_at(time, self.stop, task_name=f"stop_{self.name}_at_{underscore_datetime(time)}")
+        return self.manager.run_at(time, self.stop, task_name=f"stop_{self.name}_at_{_utils.underscore_datetime(time)}")
     
 
     def stop_on(self, datetime: str, /, tz: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> ScheduledTask:
@@ -566,7 +570,7 @@ class ScheduledTask:
         :return: The created task
         """
         tz = tz or self.schedule.tz
-        return self.manager.run_on(datetime, self.stop, tz=tz, task_name=f"stop_{self.name}_on_{underscore_datetime(datetime)}")
+        return self.manager.run_on(datetime, self.stop, tz=tz, task_name=f"stop_{self.name}_on_{_utils.underscore_datetime(datetime)}")
 
 
     def get_results(self) -> List[TaskResult]:
