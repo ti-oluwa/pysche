@@ -58,7 +58,7 @@ def taskify(
 
 
 
-def taskify_decorator_factory(manager: TaskManager, /) -> Callable[[Callable], Callable[[Callable], Callable[..., ScheduledTask]]]:
+def taskify_decorator_factory(manager: TaskManager, /):
     """
     Factory function for creating a `taskify` decorator for a given manager. This is useful when you want to create multiple
     tasks that are all managed by the same manager.

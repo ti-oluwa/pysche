@@ -313,7 +313,7 @@ class ScheduledTask:
                 self.log(msg, level="INFO")
                 break
 
-            except Exception as exc:
+            except BaseException as exc:
                 self._exc_count += 1
                 self._errors.append(exc)
                 self.log(f"{exc}", level="ERROR", exception=True)
@@ -337,7 +337,7 @@ class ScheduledTask:
                 continue
 
         # If task exits loop, task has stopped executing
-        if self.is_active:
+        if self.stopped:
             self.log("Task execution stopped.")
             self._is_active = False
         return None
@@ -422,7 +422,7 @@ class ScheduledTask:
             while self.is_active:
                 time.sleep(0.0001)
                 continue
-        except Exception as exc:
+        except BaseException as exc:
             self.stop(wait=True)
             raise exc
         return None
@@ -516,9 +516,9 @@ class ScheduledTask:
         """
         if self.stopped:
             return
-        
-        task_future = self.manager._get_future(self.id)
-        if task_future is None:
+
+        future = self.manager._get_future(self.id)
+        if future is None:
             if self.is_active or self.last_executed_at:
                 # If task is being executed or has been executed before and a future cannot 
                 # be found for the task, then `manager._futures` has been tampered with.
@@ -527,9 +527,11 @@ class ScheduledTask:
                     f"Cannot find future for task '{self.name}[id={self.id}]' in '{self.manager.name}'. Tasks are out of sync with futures.\n"
                 )
         else:
-            task_future.cancel()
+            future.cancel()
             if wait:
-                _utils.await_future(task_future, suppress_exc=True)
+                _utils.await_future(future, suppress_exc=True)
+            # Just to ensure that the future has been cancelled and marked done
+            time.sleep(0.1)
         return None
 
 
@@ -598,7 +600,7 @@ class ScheduledTask:
         async def wrapper(*args, **kwargs) -> Any:
             try:
                 result = await task_func(*args, **kwargs)
-            except Exception as exc:
+            except BaseException as exc:
                 self.manager._run_in_workthread(callback, False, self, exc)
                 raise exc
             return result

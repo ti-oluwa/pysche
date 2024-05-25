@@ -339,7 +339,7 @@ def await_future(future: asyncio.Future, *, suppress_exc: bool = False) -> Any |
     async def wrapper() -> Any | None:
         try:
             return await future
-        except (BaseException, Exception) as exc:
+        except BaseException as exc:
             if not suppress_exc:
                 raise exc
         return None

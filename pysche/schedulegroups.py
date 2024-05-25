@@ -81,7 +81,7 @@ class ScheduleGroup(AbstractBaseSchedule):
                 
                 try:
                     result = future.result()
-                except (BaseException, Exception) as exc:
+                except BaseException as exc:
                     task._exc = exc
                 else:
                     # If the future completed successfully,
@@ -113,7 +113,7 @@ class ScheduleGroup(AbstractBaseSchedule):
                     # this allows any exceptions that occurred in the schedule functions
                     # to be propagated properly to the task where it will be handled
                     raise task._exc
-            except Exception as exc:
+            except BaseException as exc:
                 # If any exception occurs, cancel all the created futures
                 # and await them properly to avoid warning thrown by asyncio
                 for future in created_futures.copy():

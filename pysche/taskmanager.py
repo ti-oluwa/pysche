@@ -1,5 +1,4 @@
 from __future__ import annotations
-import concurrent.futures as cf
 import datetime
 import logging
 from collections import deque
@@ -10,7 +9,6 @@ import asyncio
 import functools
 from dataclasses import KW_ONLY, dataclass, field, InitVar
 from contextlib import contextmanager
-
 
 from ._utils import parse_datetime, get_datetime_now, underscore_datetime
 from .exceptions import UnregisteredTask, TaskDuplicationError
@@ -267,7 +265,7 @@ class TaskManager:
             while self.is_occupied:
                 time.sleep(0.001)
                 continue
-        except Exception as exc:
+        except BaseException as exc:
             self.stop(wait=True)
             raise exc
         return None
