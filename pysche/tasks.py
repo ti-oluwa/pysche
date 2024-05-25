@@ -2,7 +2,7 @@ from __future__ import annotations
 from collections import deque
 import asyncio
 import time
-from typing import Callable, Any, Coroutine, List, Optional, Tuple, Dict, Union
+from typing import Callable, Any, Coroutine, Iterable, List, Optional, Tuple, Dict, Union
 import functools
 import datetime
 try:

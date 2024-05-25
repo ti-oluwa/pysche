@@ -219,7 +219,7 @@ class TaskManager:
     def _get_futures(self, name: str) -> List[asyncio.Future]:
         """Returns a list of futures with the specified name"""
         matches = []
-        for future in self._futures:
+        for future in self._futures.copy():
             if future.name == name:
                 matches.append(future)
         return matches
@@ -227,7 +227,7 @@ class TaskManager:
     
     def _get_future(self, future_id: str) -> asyncio.Future | None:
         """Returns future with specified ID if any"""
-        for future in self._futures:
+        for future in self._futures.copy():
             if future.id == future_id:
                 return future
         return None
