@@ -374,12 +374,6 @@ class ScheduledTask:
         return self.id == other.id
     
 
-    def __del__(self) -> None:
-        # Stop the task if it is still active when it is being deleted
-        self.stop(wait=False)
-        return None
-    
-
     def stats_wrap(self, func: Callable[..., Coroutine]) -> Callable[..., Coroutine]:
         """Wrap coroutine function to log time stats"""
         is_coroutine = asyncio.iscoroutinefunction(func)
@@ -424,12 +418,13 @@ class ScheduledTask:
 
     def join(self) -> None:
         """Wait for task to finish executing before proceeding"""
-        while self.is_active:
-            try:
+        try:
+            while self.is_active:
                 time.sleep(0.0001)
                 continue
-            except (SystemExit, KeyboardInterrupt):
-                break
+        except Exception as exc:
+            self.stop(wait=True)
+            raise exc
         return None
     
 
@@ -532,36 +527,37 @@ class ScheduledTask:
                     f"Cannot find future for task '{self.name}[id={self.id}]' in '{self.manager.name}'. Tasks are out of sync with futures.\n"
                 )
         else:
-            if not task_future.done():
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore", category=RuntimeWarning)
-                    task_future.cancel()
-                    if wait:
-                        _utils.await_future(task_future, suppress_exc=True)
+            task_future.cancel()
+            if wait:
+                _utils.await_future(task_future, suppress_exc=True)
         return None
 
 
-    def stop_after(self, delay: int | float, /) -> ScheduledTask:
+    def stop_after(self, delay: int | float, /, **kwargs) -> ScheduledTask:
         """
         Creates a new task that stops this task after specified delay in seconds
 
         :param delay: The delay in seconds after which this task will be stopped
         :return: The created task
         """
-        return self.manager.run_after(delay, self.stop, task_name=f"stop_{self.name}_after_{delay}s")
+        return self.manager.run_after(
+            delay, self.stop, task_name=f"stop_{self.name}_after_{delay}s", kwargs=kwargs
+        )
     
 
-    def stop_at(self, time: str, /) -> ScheduledTask:
+    def stop_at(self, time: str, /, **kwargs) -> ScheduledTask:
         """
         Creates a new task that stops this task at a specified time
 
         :param time: The time to stop this task. Time should be in the format 'HH:MM' or 'HH:MM:SS'
         :return: The created task
         '"""
-        return self.manager.run_at(time, self.stop, task_name=f"stop_{self.name}_at_{_utils.underscore_datetime(time)}")
+        return self.manager.run_at(
+            time, self.stop, task_name=f"stop_{self.name}_at_{_utils.underscore_datetime(time)}", kwargs=kwargs
+        )
     
 
-    def stop_on(self, datetime: str, /, tz: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> ScheduledTask:
+    def stop_on(self, datetime: str, /, tz: datetime.tzinfo | zoneinfo.ZoneInfo = None, **kwargs) -> ScheduledTask:
         """
         Creates a new task that stops this task at the specified datetime
 
@@ -570,7 +566,9 @@ class ScheduledTask:
         :return: The created task
         """
         tz = tz or self.schedule.tz
-        return self.manager.run_on(datetime, self.stop, tz=tz, task_name=f"stop_{self.name}_on_{_utils.underscore_datetime(datetime)}")
+        return self.manager.run_on(
+            datetime, self.stop, tz=tz, task_name=f"stop_{self.name}_on_{_utils.underscore_datetime(datetime)}", kwargs=kwargs
+        )
 
 
     def get_results(self) -> List[TaskResult]:

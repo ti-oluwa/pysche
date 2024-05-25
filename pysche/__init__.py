@@ -6,12 +6,12 @@ from . import schedules
 from .baseschedule import ScheduleType, AbstractBaseSchedule
 from .schedulegroups import group_schedules
 from .exceptions import StopTask
-from .decorators import task, onerror
+from .decorators import taskify, onerror
 
 
 __all__ = [
     # Task related
-    "task",
+    "taskify",
     "onerror",
     "TaskManager",
     "ScheduledTask",

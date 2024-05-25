@@ -2,13 +2,13 @@ from __future__ import annotations
 from collections import deque
 from typing import Any, Callable, Coroutine, Iterator, NoReturn, Union, List
 import asyncio
-import atexit
 
 from .abc import AbstractBaseSchedule
 from .baseschedule import ScheduleType
 from .descriptors import SetOnceDescriptor
 from . import _utils
 from .exceptions import InsufficientArguments
+
 
 
 class ScheduleGroup(AbstractBaseSchedule):
@@ -48,21 +48,6 @@ class ScheduleGroup(AbstractBaseSchedule):
         task._exc = None
         # Use a deque to manage record of created futures for thread-safety
         created_futures: deque[asyncio.Future] = deque()
-
-        @atexit.register
-        def cancel_created_futures_before_exit():
-            """
-            Ensures that all futures created are properly 
-            cancelled and awaited on program exit
-            to avoid warning/error thrown by asyncio
-            """
-            nonlocal created_futures
-            for future in created_futures.copy():
-                if not future.done():
-                    future.cancel()
-                    _utils.await_future(future, suppress_exc=True)
-            return
-        
         
         # Use a generator to ensure creation of schedule functions is lazy
         def schedule_funcs():
@@ -80,6 +65,10 @@ class ScheduleGroup(AbstractBaseSchedule):
             for each schedule function, and pass argument and keyword arguments
             passed to this function to each schedule function
             """
+            # The task manager flag that allows task to run is set to False. 
+            # Do not bother creating a future
+            if not task.manager._continue:
+                return
             future = task.manager._run_in_workthread(schedule_func, False, *args, **kwargs)
 
             def _done_callback(future: asyncio.Future) -> None:
@@ -87,6 +76,9 @@ class ScheduleGroup(AbstractBaseSchedule):
                 Handles exception propagation, adding the result to the task and rescheduling the
                 a new schedule function if the current one completes successfully.
                 """
+                if not task.manager._continue:
+                    return
+                
                 try:
                     result = future.result()
                 except (BaseException, Exception) as exc:
@@ -227,7 +219,7 @@ def group_schedules(*schedules: ScheduleType) -> ScheduleGroup:
     run_on_mondays_at_12pm_and_on_thursdays_at_3am = pysche.group_schedules(run_on_mondays_at_12pm, run_on_thursdays_at_3am)
 
 
-    @manager.newtask(run_on_mondays_at_12pm_and_on_thursdays_at_3am)
+    @manager.taskify(run_on_mondays_at_12pm_and_on_thursdays_at_3am)
     def do_something():
         ...
     ```

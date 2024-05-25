@@ -9,7 +9,6 @@ from typing import Any, Callable, Dict, Sequence, List, Mapping, Optional
 import asyncio
 import functools
 from dataclasses import KW_ONLY, dataclass, field, InitVar
-import atexit
 from contextlib import contextmanager
 
 
@@ -98,11 +97,6 @@ class TaskManager:
     
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} '{self.status}' name='{self.name}' task_count={len(self.tasks)}>"
-    
-    
-    def __del__(self) -> None:
-        self.shutdown(wait=False)
-        return None
     
 
     def __hash__(self) -> int:
@@ -261,9 +255,6 @@ class TaskManager:
             # If not, just wait for manager to start successfully
             while not self.is_active:
                 continue
-        # Register the shutdown method to be called when the program exits
-        # Ensures that all resources are cleaned up properly on exit
-        atexit.register(self.shutdown, wait=True)
         return None
         
 
@@ -272,12 +263,13 @@ class TaskManager:
         Wait for this manager to finish executing all scheduled tasks.
         This method blocks the current thread until all tasks are no longer active/running.
         """
-        while self.is_occupied:
-            try:
+        try:
+            while self.is_occupied:
                 time.sleep(0.001)
                 continue
-            except (KeyboardInterrupt, SystemExit):
-                break
+        except Exception as exc:
+            self.stop(wait=True)
+            raise exc
         return None
     
 
@@ -290,13 +282,9 @@ class TaskManager:
         """
         try:
             self.start()
-            yield
-        except Exception as exc:
-            raise exc
-        else:
-            self.join()
+            yield self
         finally:
-            self.log(f"{self.name} is idle. Exiting...", level="INFO")
+            self.join()
         return None
     
     
@@ -309,7 +297,9 @@ class TaskManager:
         if not self.is_active:
             raise RuntimeError(f"{self.name} has not started task execution yet.\n")
         
-        self._continue = False # breaks outermost while loop in all ScheduleTask's __call__ method
+        self._continue = False 
+        # Breaks outermost while loop in all ScheduleTask's __call__ method
+        # Basically an indicator for if all tasks should start or stop
 
         # Stops all tasks which eventually cancels all futures before the loop is stopped
         # This helps avoid the warning message that is thrown by the loop when it is stopped
@@ -610,7 +600,7 @@ class TaskManager:
             pass
     
     
-    def task(
+    def taskify(
         self,
         schedule,
         func: Optional[Callable] = None,
@@ -625,11 +615,10 @@ class TaskManager:
         start_immediately: bool = True,
     ):
         """
-        Takes a function to be scheduled and returns a version of the function such that when called,
-        it creates a new scheduled task and returns it. 
+        Takes a function and returns a new function that creates and returns a scheduled task when called.
+        The scheduled task executes the function on the specified schedule, and is managed by this manager.
 
-        This method can also be used as a function decorator. The decorated function returns a new scheduled task when called.
-        The returned task is managed by this manager and is executed on the specified schedule.
+        This can also be used as a decorator.
 
         :param schedule: The schedule to run the task on.
         :param func: The function to schedule. If not specified, the function being decorated will be scheduled.
@@ -647,14 +636,14 @@ class TaskManager:
         This is only applicable if the manager is already running.
         Otherwise, task execution will start when the manager starts executing tasks.
 
-        #### Usage as a function decorator:
+        #### Usage as a decorator:
         ```python
         import pysche
 
         manager = pysche.TaskManager()
         s = pysche.schedules
 
-        @manager.task(s.run_afterevery(seconds=2))
+        @manager.taskify(s.run_afterevery(seconds=2))
         def speak(msg):
             print(msg)
 
@@ -671,13 +660,13 @@ class TaskManager:
         def speak(msg):
             print(msg)
 
-        speak = manager.task(s.run_afterevery(seconds=2), speak)
+        speak = manager.taskify(s.run_afterevery(seconds=2), speak)
         task = speak('Hey!!')
         ```
         """
-        from .decorators import make_task_decorator_for_manager
-        task_decorator_for_manager = make_task_decorator_for_manager(self)
-        func_decorator = task_decorator_for_manager(
+        from .decorators import taskify_decorator_factory
+        taskify_for_manager = taskify_decorator_factory(self)
+        decorator = taskify_for_manager(
             schedule=schedule,
             name=name,
             tags=tags,
@@ -690,5 +679,5 @@ class TaskManager:
         )
 
         if func is not None:
-            return func_decorator(func)
-        return func_decorator
+            return decorator(func)
+        return decorator

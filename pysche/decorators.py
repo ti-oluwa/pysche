@@ -8,7 +8,7 @@ from .schedulegroups import ScheduleGroup
 from ._utils import underscore_string
 
 
-def task(
+def taskify(
     schedule: Union[ScheduleType, ScheduleGroup],
     manager: TaskManager,
     *,
@@ -22,7 +22,9 @@ def task(
     start_immediately: bool = True,
 ) -> Callable[[Callable], Callable[..., ScheduledTask]]:
     """
-    Function decorator. Decorated function will return a new scheduled task when called.
+    Function decorator. 
+    
+    Converts decorated function to a function that will return a scheduled task when called.
     The returned task will be managed by the specified manager and will be executed according to the specified schedule.
 
     :param schedule: The schedule to run the task on.
@@ -41,7 +43,7 @@ def task(
     This is only applicable if the manager is already running.
     Otherwise, task execution will start when the manager starts executing tasks.
     """
-    func_decorator = schedule(
+    decorator = schedule(
         manager=manager,
         name=name,
         tags=tags,
@@ -52,13 +54,13 @@ def task(
         max_retries=max_retries,
         start_immediately=start_immediately,
     )
-    return func_decorator
+    return decorator
 
 
 
-def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[[Callable], Callable[[Callable], Callable[..., ScheduledTask]]]:
+def taskify_decorator_factory(manager: TaskManager, /) -> Callable[[Callable], Callable[[Callable], Callable[..., ScheduledTask]]]:
     """
-    Convenience function for creating a task decorator for a given manager. This is useful when you want to create multiple
+    Factory function for creating a `taskify` decorator for a given manager. This is useful when you want to create multiple
     tasks that are all managed by the same manager.
 
     :param manager: The manager to create the task decorator for.
@@ -69,14 +71,14 @@ def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[[Callab
 
     s = psyche.schedules
     manager = pysche.TaskManager(name="my_manager")
-    task_for_manager = pysche.make_task_decorator_for_manager(my_manager)
+    taskify = pysche.taskify_decorator_factory(manager)
 
-    @task_for_manager(s.run_afterevery(seconds=10), ...)
+    @taskify(s.run_afterevery(seconds=10), ...)
     def function_one():
         pass
         
     
-    @task_for_manager(s.run_at("20:00:00"), ...)
+    @taskify(s.run_at("20:00:00"), ...)
     def function_two():
         pass
         
@@ -93,44 +95,20 @@ def make_task_decorator_for_manager(manager: TaskManager, /) -> Callable[[Callab
         main()
     ```
     """
-    task_decorator_for_manager = functools.partial(task, manager=manager)
-
-    @functools.wraps(task)
-    def decorator_wrapper(
-        schedule: Union[ScheduleType, ScheduleGroup],
-        *,
-        name: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        execute_then_wait: bool = False,
-        save_results: bool = False,
-        resultset_size: Optional[int] = None,
-        stop_on_error: bool = False,
-        max_retries: int = 0,
-        start_immediately: bool = True,
-    ) -> Callable[[Callable], Callable[..., ScheduledTask]]:
-        return task_decorator_for_manager(
-            schedule,
-            name=name,
-            tags=tags,
-            execute_then_wait=execute_then_wait,
-            save_results=save_results,
-            resultset_size=resultset_size,
-            stop_on_error=stop_on_error,
-            max_retries=max_retries,
-            start_immediately=start_immediately,
-        )
+    decorator_for_manager = functools.partial(taskify, manager=manager)
+    decorator = functools.wraps(taskify)(decorator_for_manager)
     
     manager_name = underscore_string(manager.name)
-    decorator_wrapper.__name__ = f"{task.__name__}_decorator_for_{manager_name}"
-    decorator_wrapper.__qualname__ = f"{task.__qualname__}_decorator_for_{manager_name}"
-    return decorator_wrapper
+    decorator.__name__ = f"{taskify.__name__}_decorator_for_{manager_name}"
+    decorator.__qualname__ = f"{taskify.__qualname__}_decorator_for_{manager_name}"
+    return decorator
 
 
   
 
 def onerror(callback: Callable) -> Callable[..., Callable[..., Union[ScheduledTask, Any]]]:
     """
-    Adds an error callback to the task returned by the decorated task function.
+    Adds an error callback to the task returned by the "taskified" function.
     The callback will be called when any error is encountered during the task's execution.
 
     :param callback: The callback function to call when an error is encountered.
@@ -147,7 +125,7 @@ def onerror(callback: Callable) -> Callable[..., Callable[..., Union[ScheduledTa
         print(f"Task {task} errored with exception: {error}")
 
     @pysche.onerror(error_callback)
-    @manager.task(s.run_afterevery(seconds=10))
+    @manager.taskify(s.run_afterevery(seconds=10))
     def function():
         raise Exception("An error occurred")
 
@@ -159,10 +137,10 @@ def onerror(callback: Callable) -> Callable[..., Callable[..., Union[ScheduledTa
         main()
     ```
     """
-    def decorator(taskfunc: Callable[..., ScheduledTask]) -> Callable[..., ScheduledTask]:
-        @functools.wraps(taskfunc)
+    def decorator(taskified: Callable[..., ScheduledTask]) -> Callable[..., ScheduledTask]:
+        @functools.wraps(taskified)
         def wrapper(*args, **kwargs) -> ScheduledTask:
-            task = taskfunc(*args, **kwargs)
+            task = taskified(*args, **kwargs)
             if not isinstance(task, ScheduledTask):
                 raise ValueError(
                     "The decorated function must return a ScheduledTask instance."
