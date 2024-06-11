@@ -127,7 +127,7 @@ class ScheduleGroup(AbstractBaseSchedule):
 
     def as_string(self) -> str:
         """Returns a string representation of the schedule group."""
-        return f"{self.__class__.__name__}<({', '.join(str(schedule) for schedule in self.schedules)})>"
+        return f"{type(self).__name__}<({', '.join(map(lambda s: str(s), self.schedules))})>"
 
 
     def __iter__(self) -> Iterator[ScheduleType]:
@@ -141,7 +141,7 @@ class ScheduleGroup(AbstractBaseSchedule):
     def __eq__(self, other: Union[ScheduleGroup, object]) -> bool:
         if not isinstance(other, ScheduleGroup):
             raise NotImplementedError(
-                f"Cannot compare {self.__class__.__name__} and {other.__class__.__name__}"
+                f"Cannot compare {type(self).__name__} and {other.__class__.__name__}"
             )
         return self.schedules == other.schedules
     
@@ -154,8 +154,8 @@ class ScheduleGroup(AbstractBaseSchedule):
         """Adds a new schedule to the group."""
         try:
             if isinstance(other, ScheduleGroup):
-                return self.__class__(*self.schedules, *other.schedules)
-            return self.__class__(*self.schedules, other)
+                return type(self)(*self.schedules, *other.schedules)
+            return type(self)(*self.schedules, other)
         except ValueError as exc:
             raise ValueError(
                 f"Cannot add {self} and {other}"
@@ -168,7 +168,7 @@ class ScheduleGroup(AbstractBaseSchedule):
     def __sub__(self, other: ScheduleType) -> ScheduleGroup:
         """Removes a schedule from the group."""
         try:
-            return self.__class__(*filter(lambda schedule: schedule != other, self.schedules))
+            return type(self)(*filter(lambda schedule: schedule != other, self.schedules))
         except InsufficientArguments:
             raise ValueError("Subtraction resulted in an invalid schedule group.")
     

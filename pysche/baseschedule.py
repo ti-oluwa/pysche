@@ -28,7 +28,7 @@ class Schedule(AbstractBaseSchedule):
     the next execution time of the tasks based on the schedule is not available.
     """
     
-    _removable_str_prefix = "run_"
+    removable_prefix = "run_"
     """
     This indicates a prefix that can be removed from the string representation of a schedule.
     It usually utilized when generating a string representation of a schedule clause.
@@ -103,10 +103,10 @@ class Schedule(AbstractBaseSchedule):
         import pysche
 
         s = psyche.schedules
-        run_in_march_from_mon_to_fri_at_12_30pm = s.run_in_month(month=3).from_weekday__to(_from=0, _to=4).at("12:30:00")
+        run_in_march_from_mon_to_fri_at_12_30pm = s.run_in_month(month=3).within_weekday(start=0, end=4).at("12:30:00")
 
         print(run_in_march_from_mon_to_fri_at_12_30pm.get_ancestors())
-        # >>> [run_in_month(month=3), run_from_weekday__to(_from=0, _to=4)]
+        # >>> [run_in_month(month=3), run_within_weekday(start=0, end=4)]
         """
         ancestors = []
         schedule = self
@@ -144,7 +144,7 @@ class Schedule(AbstractBaseSchedule):
 
     def __str__(self) -> str:
         """Returns a string representation of the entire schedule/schedule clause (including any parent(s) if any)."""
-        self_representation = self.as_string()
+        representation = self.as_string()
         if self.parent:
             # If the schedule has a parent(s) return the representation of the parent(s) and the schedule
             # joined together in the same order as they are chained.
@@ -152,13 +152,13 @@ class Schedule(AbstractBaseSchedule):
             for index, ancestor in enumerate(self.get_ancestors()):
                 parent_representation: str = ancestor.as_string()
                 if index != 0:
-                    parents_representations.append(parent_representation.removeprefix(self._removable_str_prefix or "run_"))
+                    parents_representations.append(parent_representation.removeprefix(self.removable_prefix))
                     continue
                 parents_representations.append(parent_representation)
-            return f"{'.'.join(parents_representations)}.{self_representation.removeprefix(self._removable_str_prefix or "run_")}"
+            return f"{'.'.join(parents_representations)}.{representation.removeprefix(self.removable_prefix)}"
         
         # Just return the representation of the schedule.
-        return self_representation
+        return representation
     
 
     def __hash__(self) -> int:

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Callable, Coroutine, Any, List, Optional
+from typing import Callable, Coroutine, Any, List, Optional, TypedDict, Union
 import functools
 from abc import ABC, abstractmethod
 try:
@@ -15,7 +15,7 @@ from ._utils import _strip_description
 
 class AbstractBaseSchedule(ABC):
     """Abstract base class for all schedules."""
-
+    
     tz = SetOnceDescriptor(zoneinfo.ZoneInfo, default=None)
     """
     The timezone to use for the schedule. This should only be set once.

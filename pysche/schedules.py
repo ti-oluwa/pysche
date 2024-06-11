@@ -14,7 +14,7 @@ from ._utils import (
     weekday_to_str, str_to_weekday, month_to_str,
     str_to_month
 )
-from .descriptors import SetOnceDescriptor
+from .descriptors import SetOnceDescriptor, null
 
 
 month_validator = minmax(1, 12)
@@ -26,7 +26,6 @@ weekday_validator = minmax(0, 6)
 
 class run_at(Schedule):
     """Task will run at the specified time, everyday"""
-
     time = SetOnceDescriptor(datetime.time)
     """Time in the day when the task will run."""
 
@@ -44,7 +43,7 @@ class run_at(Schedule):
         s = pysche.schedules
         run_at_12_30pm_daily = s.run_at("12:30:00", tz="Africa/Lagos")
 
-        @manager.newtask(run_at_12_30pm_daily, **kwargs)
+        @manager.taskify(run_at_12_30pm_daily, **kwargs)
         def func():
             print("Hello world!")
 
@@ -53,11 +52,11 @@ class run_at(Schedule):
         """
         super().__init__(**kwargs)
         self.time = parse_time(time=time, tzinfo=self.tz)
-        self.wait_duration = self.get_next_occurrence_of_time(self.time)
+        self.wait_duration = self.get_next_occurrence(self.time)
         return None
 
 
-    def get_next_occurrence_of_time(self, time: datetime.time) -> datetime.timedelta:
+    def get_next_occurrence(self, time: datetime.time) -> datetime.timedelta:
         """
         Calculates the timedelta to the next occurrence of the specified time in the given datetime.
         If the time is in the future, the timedelta will be the difference between the current time and the specified time.
@@ -95,7 +94,7 @@ class run_at(Schedule):
             is_due = self.parent.is_due() and is_due
 
         if is_due:
-            self.wait_duration = self.get_next_occurrence_of_time(self.time)
+            self.wait_duration = self.get_next_occurrence(self.time)
         return is_due
     
     
@@ -106,7 +105,6 @@ class run_at(Schedule):
 
 class run_afterevery(Schedule):
     """Task will run after the specified interval, repeatedly"""
-    
     wait_duration = SetOnceDescriptor(datetime.timedelta, default=None)
 
     def __init__(
@@ -135,7 +133,7 @@ class run_afterevery(Schedule):
         manager = pysche.TaskManager()
         s = pysche.schedules
 
-        @manager.newtask(s.run_afterevery(seconds=5), **kwargs)
+        @manager.taskify(s.run_afterevery(seconds=5), **kwargs)
         def func():
             print("Hello world!")
 
@@ -197,8 +195,9 @@ class run_afterevery(Schedule):
         return f"Task will run after every {', '.join(wd_list)}."
 
 
+
 class AtMixin:
-    """Allows chaining of the 'at' schedule to other schedules."""
+    """Allows chaining of the 'run_at' schedule to other schedules."""
 
     def at(self: ScheduleType, time: str, **kwargs) -> run_at:
         """
@@ -211,7 +210,7 @@ class AtMixin:
 
 
 class AfterEveryMixin:
-    """Allows chaining of the 'afterevery' schedule to other schedules."""
+    """Allows chaining of the 'run_afterevery' schedule to other schedules."""
 
     def afterevery(
         self: ScheduleType,
@@ -258,11 +257,14 @@ class BaseTimePeriodSchedule(AfterEveryMixin, Schedule):
     manager = pysche.TaskManager()
     s = pysche.schedules
 
-    run_on_4th_november_from_2_30_to_2_35_afterevery_5s = s.run_in_month(11).on_day_of_month(4).from__to("14:30:00", "14:35:00").afterevery(seconds=5)
+    run_on_4th_november_from_2_30_to_2_35_afterevery_5s = s.run_in_month(11)\
+                                                            .on_dayofmonth(4)\
+                                                            .within("14:30:00", "14:35:00")\
+                                                            .afterevery(seconds=5)
     ```
     """
 
-    wait_duration = SetOnceDescriptor(validators=[ensure_value_is_null])
+    wait_duration = SetOnceDescriptor(null, validators=[ensure_value_is_null])
     """Time period schedules have no wait duration. Accessing this attribute will raise an error."""
     
     def __call__(
@@ -282,7 +284,7 @@ class BaseTimePeriodSchedule(AfterEveryMixin, Schedule):
             self.wait_duration
         except AttributeError:
             raise ValueError(
-                f"The '{self.__class__.__name__}' schedule cannot be used solely to create a task."
+                f"The '{type(self).__name__}' schedule cannot be used solely to create a task."
                 " It has to be chained with a schedule that has it's wait duration specified to form a useable schedule clause."
             )
         return super().__call__(
@@ -353,19 +355,23 @@ class MSAfterEveryMixin(AfterEveryMixin):
     
 
 
-class run_from__to(MSAfterEveryMixin, BaseTimePeriodSchedule):
+class run_within(MSAfterEveryMixin, BaseTimePeriodSchedule):
     """
     Task will only run within the specified time frame, everyday.
 
     This special schedule phrase is meant to be chained with the `afterevery` phrase.
     """
+    start = SetOnceDescriptor(datetime.time)
+    """The time to start running the task."""
+    end = SetOnceDescriptor(datetime.time)
+    """The time to stop running the task."""
 
-    def __init__(self, _from: str, _to: str, **kwargs) -> None:
+    def __init__(self, start: str, end: str, **kwargs) -> None:
         """
         Create a schedule that will only be due within the specified time frame, everyday.
 
-        :param _from: The time to start running the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
-        :param _to: The time to stop running the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
+        :param start: The time to start running the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
+        :param end: The time to stop running the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
 
         Example:
         ```
@@ -373,7 +379,7 @@ class run_from__to(MSAfterEveryMixin, BaseTimePeriodSchedule):
 
         manager = pysche.TaskManager()
         s = pysche.schedules
-        run_from_12_30_to_13_30 = s.run_from__to("12:30:00", "13:30:00", tz="Africa/Lagos")
+        run_from_12_30_to_13_30 = s.run_within("12:30:00", "13:30:00", tz="Africa/Lagos")
 
         @run_from_12_30_to_13_30.afterevery(seconds=5)(manager, **kwargs)
         def func():
@@ -383,10 +389,10 @@ class run_from__to(MSAfterEveryMixin, BaseTimePeriodSchedule):
         ```
         """
         super().__init__(**kwargs)
-        self._from = parse_time(time=_from, tzinfo=self.tz)
-        self._to = parse_time(time=_to, tzinfo=self.tz)
-        if self._from == self._to:
-            raise ValueError("'_from' time cannot be the same as '_to' time")
+        self.start = parse_time(time=start, tzinfo=self.tz)
+        self.end = parse_time(time=end, tzinfo=self.tz)
+        if self.start == self.end:
+            raise ValueError("'start' time cannot be the same as 'end' time")
         return None
     
 
@@ -397,18 +403,18 @@ class run_from__to(MSAfterEveryMixin, BaseTimePeriodSchedule):
         
         time_now_str_in_machine_tz = get_datetime_now().strftime("%H:%M:%S")
         mock_dt_with_time_now = _construct_mock_datetime_with_time(time_now_str_in_machine_tz)
-        mock_dt_with_from_time = _construct_mock_datetime_with_time(self._from.strftime("%H:%M:%S"), self.tz)
-        mock_dt_with_to_time = _construct_mock_datetime_with_time(self._to.strftime("%H:%M:%S"), self.tz)
+        mock_dt_with_from_time = _construct_mock_datetime_with_time(self.start.strftime("%H:%M:%S"), self.tz)
+        mock_dt_with_to_time = _construct_mock_datetime_with_time(self.end.strftime("%H:%M:%S"), self.tz)
 
-        if self._from < self._to:
-            # E.g; If self._from='04:00:00' and self._to='08:00:00', then we can check if the time (x),
+        if self.start < self.end:
+            # E.g; If self.start='04:00:00' and self.end='08:00:00', then we can check if the time (x),
             # lies between the range (x: '04:00:00' <= x <= '08:00:00')
             is_due = (mock_dt_with_time_now >= mock_dt_with_from_time) and (mock_dt_with_time_now <= mock_dt_with_to_time)
         else:
-            # E.g; If self._from='14:00:00' and self._to='00:00:00', then we can check if the time (x),
+            # E.g; If self.start='14:00:00' and self.end='00:00:00', then we can check if the time (x),
             # satisfies any of the two conditions; 
-            # -> x >= self._from
-            # -> x <= self._to
+            # -> x >= self.start
+            # -> x <= self.end
             is_due = (mock_dt_with_time_now >= mock_dt_with_from_time) or (mock_dt_with_time_now <= mock_dt_with_to_time)
 
         if self.parent:
@@ -417,25 +423,25 @@ class run_from__to(MSAfterEveryMixin, BaseTimePeriodSchedule):
     
 
     def __describe__(self) -> str:
-        return f"Task will run from {self._from.strftime('%H:%M:%S')} to {self._to.strftime('%H:%M:%S %z')} everyday."
+        return f"Task will run from {self.start.strftime('%H:%M:%S')} to {self.end.strftime('%H:%M:%S %z')} everyday."
 
 
 
-class From__ToMixin:
-    """Allows chaining of the 'from__to' schedule to other schedules."""
+class WithinMixin:
+    """Allows chaining of the 'run_within' schedule to other schedules."""
 
-    def from__to(self: ScheduleType, _from: str, _to: str) -> run_from__to:
+    def within(self: ScheduleType, start: str, end: str) -> run_within:
         """
         Task will only run within the specified time frame, everyday.
 
-        :param _from: The time to start running the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
-        :param _to: The time to stop running the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
+        :param start: The time to start running the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
+        :param end: The time to stop running the task. The time must be in the format, "HH:MM" or "HH:MM:SS".
         """
-        return run_from__to(_from=_from, _to=_to, parent=self)
+        return run_within(start=start, end=end, parent=self)
 
 
 
-class TimePeriodSchedule(From__ToMixin, AtMixin, BaseTimePeriodSchedule):
+class TimePeriodSchedule(WithinMixin, AtMixin, BaseTimePeriodSchedule):
     __doc__ = BaseTimePeriodSchedule.__doc__
     pass
 
@@ -462,7 +468,7 @@ class run_on_weekday(HMSAfterEveryMixin, TimePeriodSchedule):
         s = pysche.schedules
         run_on_mondays = s.run_on_weekday(weekday=0)
 
-        @manager.newtask(run_on_mondays.afterevery(minutes=10), **kwargs)
+        @manager.taskify(run_on_mondays.afterevery(minutes=10), **kwargs)
         def func():
             print("Hello world!")
 
@@ -486,6 +492,7 @@ class run_on_weekday(HMSAfterEveryMixin, TimePeriodSchedule):
 
     def __describe__(self) -> str:
         return f"Task will run on {weekday_to_str(self.weekday)}s."
+
 
 
 class run_on_dayofmonth(HMSAfterEveryMixin, TimePeriodSchedule):
@@ -534,7 +541,7 @@ class run_on_dayofmonth(HMSAfterEveryMixin, TimePeriodSchedule):
 
 
 class OnWeekDayMixin:
-    """Allows chaining of the "on_weekday" schedule to other schedules."""
+    """Allows chaining of the "run_on_weekday" schedule to other schedules."""
 
     def on_weekday(self: ScheduleType, weekday: Union[int, str]) -> run_on_weekday:
         """
@@ -548,7 +555,7 @@ class OnWeekDayMixin:
 
 
 class OnDayOfMonthMixin:
-    """Allows chaining of the "on_dayofmonth" schedule to other schedules."""
+    """Allows chaining of the "run_on_dayofmonth" schedule to other schedules."""
 
     def on_dayofmonth(self: ScheduleType, day: int) -> run_on_dayofmonth:
         """
@@ -561,43 +568,40 @@ class OnDayOfMonthMixin:
 
 
 class OnDayMixin(OnWeekDayMixin, OnDayOfMonthMixin):
-    """Combines on `OnWeekDayMixin` and `OnDayOfMonthMixin`."""
+    """Combines `OnWeekDayMixin` and `OnDayOfMonthMixin`."""
     pass
 
 
 
-
-class RunFromSchedule(TimePeriodSchedule):
-    """Base class for all "RunFrom...__to" type time period schedule."""
-
-    _from = SetOnceDescriptor()
+class RunWithinSchedule(TimePeriodSchedule):
+    """Base class for all "run_within_..." type time period schedule."""
+    start = SetOnceDescriptor()
     """The start of the time period."""
-    _to = SetOnceDescriptor()
+    end = SetOnceDescriptor()
     """The end of the time period."""
 
-    def __init__(self, _from: Any, _to: Any, **kwargs) -> None:
+    def __init__(self, start: Any, end: Any, **kwargs) -> None:
         super().__init__(**kwargs)
-        self._from = _from
-        self._to = _to
+        self.start = start
+        self.end = end
         return None
 
 
 
-
-class run_from_weekday__to(HMSAfterEveryMixin, RunFromSchedule):
+class run_within_weekday(HMSAfterEveryMixin, RunWithinSchedule):
     """Task will only run within the specified days of the week, every week."""
 
-    _from = SetOnceDescriptor(int, validators=[weekday_validator])
+    start = SetOnceDescriptor(int, validators=[weekday_validator])
     """The day of the week (0-6) from which the task will run. 0 is Monday and 6 is Sunday."""
-    _to = SetOnceDescriptor(int, validators=[weekday_validator])
+    end = SetOnceDescriptor(int, validators=[weekday_validator])
     """The day of the week (0-6) until which the task will run. 0 is Monday and 6 is Sunday."""
 
-    def __init__(self, _from: Union[int, str], _to: Union[int, str], **kwargs) -> None:
+    def __init__(self, start: Union[int, str], end: Union[int, str], **kwargs) -> None:
         """
         Create a schedule that will only be due within the specified days of the week, every week.
 
-        :param _from: The day of the week (0-6) from which the task will run. 0 is Monday and 6 is Sunday.
-        :param _to: The day of the week (0-6) until which the task will run. 0 is Monday and 6 is Sunday.
+        :param start: The day of the week (0-6) from which the task will run. 0 is Monday and 6 is Sunday.
+        :param end: The day of the week (0-6) until which the task will run. 0 is Monday and 6 is Sunday.
 
         You can also pass the name of the weekdays as a string. E.g; "Monday", "Tuesday", etc.
         
@@ -607,7 +611,7 @@ class run_from_weekday__to(HMSAfterEveryMixin, RunFromSchedule):
 
         manager = pysche.TaskManager()
         s = pysche.schedules
-        run_from_monday_to_friday = s.run_from_weekday__to(0, 4)
+        run_from_monday_to_friday = s.run_within_weekday(0, 4)
 
         @run_from_monday_to_friday.at("11:00:00")(manager, **kwargs)
         def func():
@@ -616,27 +620,27 @@ class run_from_weekday__to(HMSAfterEveryMixin, RunFromSchedule):
         func()
         ```
         """
-        if _from == _to:
-            raise ValueError("'_from' and '_to' cannot be the same")
-        if isinstance(_from, str):
-            _from = str_to_weekday(_from)
-        if isinstance(_to, str):
-            _to = str_to_weekday(_to)
-        return super().__init__(_from, _to, **kwargs)
+        if start == end:
+            raise ValueError("'start' and 'end' cannot be the same")
+        if isinstance(start, str):
+            start = str_to_weekday(start)
+        if isinstance(end, str):
+            end = str_to_weekday(end)
+        return super().__init__(start, end, **kwargs)
 
     
     def is_due(self) -> bool:
         weekday_now = get_datetime_now(tzinfo=self.tz).weekday()
-        if self._from < self._to:
-            # E.g; If self._from=0 and self._to=5, then we can check if the weekday (x),
+        if self.start < self.end:
+            # E.g; If self.start=0 and self.end=5, then we can check if the weekday (x),
             # lies between the range (x: 0 <= x <= 5)
-            is_due = weekday_now >= self._from and weekday_now <= self._to
+            is_due = weekday_now >= self.start and weekday_now <= self.end
         else:
-            # E.g; If self._from=6 and self._to=3, then we can check if the weekday (x),
+            # E.g; If self.start=6 and self.end=3, then we can check if the weekday (x),
             # satisfies any of the two conditions; 
-            # -> x >= self._from
-            # -> x <= self._to
-            is_due = weekday_now >= self._from or weekday_now <= self._to
+            # -> x >= self.start
+            # -> x <= self.end
+            is_due = weekday_now >= self.start or weekday_now <= self.end
 
         if self.parent:
             return self.parent.is_due() and is_due
@@ -644,24 +648,24 @@ class run_from_weekday__to(HMSAfterEveryMixin, RunFromSchedule):
     
 
     def __describe__(self) -> str:
-        return f"Task will run from {weekday_to_str(self._from)} to {weekday_to_str(self._to)}."
+        return f"Task will run from {weekday_to_str(self.start)} to {weekday_to_str(self.end)}."
 
 
 
-class run_from_dayofmonth__to(HMSAfterEveryMixin, RunFromSchedule):
+class run_within_dayofmonth(HMSAfterEveryMixin, RunWithinSchedule):
     """Task will only run within the specified days of the month, every month."""
 
-    _from = SetOnceDescriptor(int, validators=[dayofmonth_validator])
+    start = SetOnceDescriptor(int, validators=[dayofmonth_validator])
     """The day of the month (1-31) from which the task will run."""
-    _to = SetOnceDescriptor(int, validators=[dayofmonth_validator])
+    end = SetOnceDescriptor(int, validators=[dayofmonth_validator])
     """The day of the month (1-31) until which the task will run."""
 
-    def __init__(self, _from: int, _to: int, **kwargs) -> None:
+    def __init__(self, start: int, end: int, **kwargs) -> None:
         """
         Create a schedule that will only be due within the specified days of the month, every month.
 
-        :param _from: The day of the month (1-31) from which the task will run.
-        :param _to: The day of the month (1-31) until which the task will run.
+        :param start: The day of the month (1-31) from which the task will run.
+        :param end: The day of the month (1-31) until which the task will run.
 
         Example:
         ```
@@ -669,32 +673,32 @@ class run_from_dayofmonth__to(HMSAfterEveryMixin, RunFromSchedule):
 
         manager = pysche.TaskManager()
         s = pysche.schedules
-        run_from_1st_to_5th_of_every_month = s.run_from_dayofmonth__to(1, 5)
+        run_from_1st_to_5th_of_every_month = s.run_within_dayofmonth(1, 5)
 
-        @manager.newtask(run_from_1st_to_5th_of_every_month.at("00:00:00"), **kwargs)
+        @manager.taskify(run_from_1st_to_5th_of_every_month.at("00:00:00"), **kwargs)
         def func():
             print("Hello world!")
 
         func()
         ```
         """
-        if _from == _to:
-            raise ValueError("'_from' and '_to' cannot be the same")
-        return super().__init__(_from, _to, **kwargs)             
+        if start == end:
+            raise ValueError("'start' and 'end' cannot be the same")
+        return super().__init__(start, end, **kwargs)             
 
     
     def is_due(self) -> bool:
         today = get_datetime_now(tzinfo=self.tz).day
-        if self._from < self._to:
-            # E.g; If self._from=4 and self._to=6, then we can check if the day (x),
+        if self.start < self.end:
+            # E.g; If self.start=4 and self.end=6, then we can check if the day (x),
             # lies between the range (x: 4 <= x <= 6)
-            is_due = today >= self._from and today <= self._to
+            is_due = today >= self.start and today <= self.end
         else:
-            # E.g; If self._from=11 and self._to=3, then we can check if the day (x),
+            # E.g; If self.start=11 and self.end=3, then we can check if the day (x),
             # satisfies any of the two conditions; 
-            # -> x >= self._from
-            # -> x <= self._to
-            is_due = today >= self._from or today <= self._to
+            # -> x >= self.start
+            # -> x <= self.end
+            is_due = today >= self.start or today <= self.end
 
         if self.parent:
             return self.parent.is_due() and is_due
@@ -702,48 +706,47 @@ class run_from_dayofmonth__to(HMSAfterEveryMixin, RunFromSchedule):
     
 
     def __describe__(self) -> str:
-        return f"Task will run from {self._from} to {self._to} of every month."
+        return f"Task will run from {self.start} to {self.end} of every month."
 
 
 
-class FromDayOfMonth__ToMixin:
-    """Allows chaining of the "from_dayofmonth__to" schedule to other schedules"""
+class WithinDayOfMonthMixin:
+    """Allows chaining of the "run_within_dayofmonth" schedule to other schedules"""
 
-    def from_dayofmonth__to(self: ScheduleType, _from: int, _to: int) -> run_from_dayofmonth__to:
+    def within_dayofmonth(self: ScheduleType, start: int, end: int) -> run_within_dayofmonth:
         """
         Task will only run within the specified days of the month, every month.
 
-        :param _from: The day of the month (1-31) from which the task will run.
-        :param _to: The day of the month (1-31) until which the task will run.
+        :param start: The day of the month (1-31) from which the task will run.
+        :param end: The day of the month (1-31) until which the task will run.
         """
-        return run_from_dayofmonth__to(_from=_from, _to=_to, parent=self)
+        return run_within_dayofmonth(start=start, end=end, parent=self)
 
 
 
-class FromWeekDay__ToMixin:
-    """Allows chaining of the "from_weekday__to" schedule to other schedules."""
+class WithinWeekDayMixin:
+    """Allows chaining of the "run_within_weekday" schedule to other schedules."""
 
-    def from_weekday__to(self: ScheduleType, _from: Union[int, str], _to: Union[int, str]) -> run_from_weekday__to:
+    def within_weekday(self: ScheduleType, start: Union[int, str], end: Union[int, str]) -> run_within_weekday:
         """
         Task will only run within the specified days of the week, every week.
 
-        :param _from: The day of the week (0-6) from which the task will run. 0 is Monday and 6 is Sunday.
-        :param _to: The day of the week (0-6) until which the task will run. 0 is Monday and 6 is Sunday.
+        :param start: The day of the week (0-6) from which the task will run. 0 is Monday and 6 is Sunday.
+        :param end: The day of the week (0-6) until which the task will run. 0 is Monday and 6 is Sunday.
 
         You can also pass the name of the weekday as a string. E.g; "Monday", "Tuesday", etc.
         """
-        return run_from_weekday__to(_from=_from, _to=_to, parent=self)
+        return run_within_weekday(start=start, end=end, parent=self)
 
 
 
-class FromDay__ToMixin(FromDayOfMonth__ToMixin, FromWeekDay__ToMixin):
-    """Combines `FromDayOfMonth__ToMixin` and `FromWeekDay__ToMixin`."""
+class WithinDayMixin(WithinDayOfMonthMixin, WithinWeekDayMixin):
+    """Combines `WithinDayOfMonthMixin` and `WithinWeekDayMixin`."""
     pass
 
 
 
-
-class run_in_month(DHMSAfterEveryMixin, FromDay__ToMixin, OnDayMixin, TimePeriodSchedule):
+class run_in_month(DHMSAfterEveryMixin, WithinDayMixin, OnDayMixin, TimePeriodSchedule):
     """Task will run in specified month of the year, every year"""
 
     month = SetOnceDescriptor(int, validators=[month_validator])
@@ -765,7 +768,7 @@ class run_in_month(DHMSAfterEveryMixin, FromDay__ToMixin, OnDayMixin, TimePeriod
         run_every_january = s.run_in_month(month=1)
 
         @pysche.task(
-            schedule=run_every_january.from_weekday__to(2, 6).at("06:00:00"), 
+            schedule=run_every_january.within_weekday(2, 6).at("06:00:00"), 
             manager=manager,
             **kwargs
         )
@@ -809,21 +812,20 @@ class InMonthMixin:
 
 
 
-
-class run_from_month__to(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunFromSchedule):
+class run_within_month(DHMSAfterEveryMixin, OnDayMixin, WithinDayMixin, RunWithinSchedule):
     """Task will only run within the specified months of the year, every year."""
 
-    _from = SetOnceDescriptor(int, validators=[month_validator])
+    start = SetOnceDescriptor(int, validators=[month_validator])
     """The month of the year (1-12) from which the task will run. 1 is January and 12 is December."""
-    _to = SetOnceDescriptor(int, validators=[month_validator])
+    end = SetOnceDescriptor(int, validators=[month_validator])
     """The month of the year (1-12) until which the task will run. 1 is January and 12 is December."""
 
-    def __init__(self, _from: Union[int, str], _to: Union[int, str], **kwargs) -> None:
+    def __init__(self, start: Union[int, str], end: Union[int, str], **kwargs) -> None:
         """
         Create a schedule that will only be due within the specified months of the year, every year.
 
-        :param _from: The month of the year (1-12) from which the task will run. 1 is January and 12 is December.
-        :param _to: The month of the year (1-12) until which the task will run. 1 is January and 12 is December.
+        :param start: The month of the year (1-12) from which the task will run. 1 is January and 12 is December.
+        :param end: The month of the year (1-12) until which the task will run. 1 is January and 12 is December.
 
         You can also pass the name of the month as a string. E.g; "January", "February", etc.
 
@@ -833,9 +835,9 @@ class run_from_month__to(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunF
 
         manager = pysche.TaskManager()
         s = pysche.schedules
-        run_from_january_to_march = s.run_from_month__to(1, 3)
+        run_from_january_to_march = s.run_within_month(1, 3)
 
-        @run_from_january_to_march.from_dayofmonth__to(12, 28)
+        @run_from_january_to_march.within_dayofmonth(12, 28)
         .afterevery(minutes=5, seconds=20)(manager, **kwargs)
         def func():
             print("Hello world!")
@@ -843,27 +845,27 @@ class run_from_month__to(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunF
         func()
         ```
         """
-        if _from == _to:
-            raise ValueError("'_from' and '_to' cannot be the same")
-        if isinstance(_from, str):
-            _from = str_to_month(_from)
-        if isinstance(_to, str):
-            _to = str_to_month(_to)
-        return super().__init__(_from, _to, **kwargs)
+        if start == end:
+            raise ValueError("'start' and 'end' cannot be the same")
+        if isinstance(start, str):
+            start = str_to_month(start)
+        if isinstance(end, str):
+            end = str_to_month(end)
+        return super().__init__(start, end, **kwargs)
 
     
     def is_due(self) -> bool:
         month_now = get_datetime_now(tzinfo=self.tz).month
-        if self._from < self._to:
-            # E.g; If self._from=4 and self._to=8, then we can check if the month (x),
+        if self.start < self.end:
+            # E.g; If self.start=4 and self.end=8, then we can check if the month (x),
             # lies between the range (x: 4 <= x <= 8)
-            is_due: bool = month_now >= self._from and month_now <= self._to
+            is_due: bool = month_now >= self.start and month_now <= self.end
         else:
-            # E.g; If self._from=11 and self._to=3, then we can check if the month (x),
+            # E.g; If self.start=11 and self.end=3, then we can check if the month (x),
             # satisfies any of the two conditions; 
-            # -> x >= self._from
-            # -> x <= self._to
-            is_due: bool = month_now >= self._from or month_now <= self._to
+            # -> x >= self.start
+            # -> x <= self.end
+            is_due: bool = month_now >= self.start or month_now <= self.end
 
         if self.parent:
             return self.parent.is_due() and is_due
@@ -871,27 +873,27 @@ class run_from_month__to(DHMSAfterEveryMixin, OnDayMixin, FromDay__ToMixin, RunF
     
 
     def __describe__(self) -> str:
-        return f"Task will run from {month_to_str(self._from)} to {month_to_str(self._to)}."
+        return f"Task will run from {month_to_str(self.start)} to {month_to_str(self.end)}."
 
     
 
-class FromMonth__ToMixin:
-    """Allows chaining of the "from_month__to" schedule to other schedules."""
+class WithinMonthMixin:
+    """Allows chaining of the "run_within_month" schedule to other schedules."""
 
-    def from_month__to(self: ScheduleType, _from: Union[int, str], _to: Union[int, str]) -> run_from_month__to:
+    def within_month(self: ScheduleType, start: Union[int, str], end: Union[int, str]) -> run_within_month:
         """
         Task will only run within the specified months of the year, every year.
 
-        :param _from: The month of the year (1-12) from which the task will run. 1 is January and 12 is December.
-        :param _to: The month of the year (1-12) until which the task will run. 1 is January and 12 is December.
+        :param start: The month of the year (1-12) from which the task will run. 1 is January and 12 is December.
+        :param end: The month of the year (1-12) until which the task will run. 1 is January and 12 is December.
 
         You can also pass the name of the month as a string. E.g; "January", "February", etc.
         """
-        return run_from_month__to(_from=_from, _to=_to, parent=self)
+        return run_within_month(start=start, end=end, parent=self)
   
 
 
-class run_in_year(FromMonth__ToMixin, FromDay__ToMixin, InMonthMixin, OnDayMixin, TimePeriodSchedule):
+class run_in_year(WithinMonthMixin, WithinDayMixin, InMonthMixin, OnDayMixin, TimePeriodSchedule):
     """Task will run in specified year"""
 
     year = SetOnceDescriptor(int)
@@ -911,8 +913,8 @@ class run_in_year(FromMonth__ToMixin, FromDay__ToMixin, InMonthMixin, OnDayMixin
         s = pysche.schedules
         run_in_2021 = s.run_in_year(2021)
 
-        @run_in_2021.from_month__to(1, 6)
-        .from_weekday__to(3, 5).at("03:43:00")(manager, **kwargs)
+        @run_in_2021.within_month(1, 6)
+        .within_weekday(3, 5).at("03:43:00")(manager, **kwargs)
         def func():
             print("Hello world!")
 
@@ -936,20 +938,20 @@ class run_in_year(FromMonth__ToMixin, FromDay__ToMixin, InMonthMixin, OnDayMixin
 
 
 
-class run_from_datetime__to(InMonthMixin, OnDayMixin, FromMonth__ToMixin, FromDay__ToMixin, RunFromSchedule):
+class run_within_datetime(InMonthMixin, OnDayMixin, WithinMonthMixin, WithinDayMixin, RunWithinSchedule):
     """Task will only run within the specified date and time range."""
 
-    _from = SetOnceDescriptor(str)
+    start = SetOnceDescriptor(str)
     """The date and time from which the task will run."""
-    _to = SetOnceDescriptor(str)
+    end = SetOnceDescriptor(str)
     """The date and time until which the task will run."""
 
-    def __init__(self, _from: str, _to: str, **kwargs) -> None:
+    def __init__(self, start: str, end: str, **kwargs) -> None:
         """
         Create a schedule that will only be due within the specified date and time.
 
-        :param _from: The date and time from which the task will run.
-        :param _to: The date and time until which the task will run.
+        :param start: The date and time from which the task will run.
+        :param end: The date and time until which the task will run.
 
         Example:
         ```
@@ -957,35 +959,35 @@ class run_from_datetime__to(InMonthMixin, OnDayMixin, FromMonth__ToMixin, FromDa
 
         manager = pysche.TaskManager()
         s = pysche.schedules
-        run_from_2021_01_01_00_00_to_2022_01_02_00_05 = s.run_from_datetime__to("2021-01-01 00:00:00", "2022-01-02 00:05:00")
+        run_from_2021_01_01_00_00_to_2022_01_02_00_05 = s.run_within_datetime("2021-01-01 00:00:00", "2022-01-02 00:05:00")
 
         @run_from_2021_01_01_00_00_to_2022_01_02_00_05
-        .from__to("08:00:00", "15:00:00")(manager, **kwargs)
+        .within("08:00:00", "15:00:00")(manager, **kwargs)
         def func():
             print("Hello world!")
         
         func()
         ```
         """
-        super().__init__(_from, _to, **kwargs)
-        self._from = parse_datetime(dt=_from, tzinfo=self.tz)
-        self._to = parse_datetime(dt=_to, tzinfo=self.tz)
+        super().__init__(start, end, **kwargs)
+        self.start = parse_datetime(dt=start, tzinfo=self.tz)
+        self.end = parse_datetime(dt=end, tzinfo=self.tz)
 
-        # For datetimes self._from must always be greater than self._to
-        if self._from > self._to:
-            raise ValueError("'_from' cannot be greater than '_to'")
+        # For datetimes self.start must always be greater than self.end
+        if self.start > self.end:
+            raise ValueError("'start' cannot be greater than 'end'")
         return None
     
 
     def is_due(self) -> bool:
         now = get_datetime_now(tzinfo=self.tz)
-        is_due = now >= self._from and now <= self._to
+        is_due = now >= self.start and now <= self.end
         if self.parent:
             return self.parent.is_due() and is_due
         return is_due
     
 
     def __describe__(self) -> str:
-        return f"Task will run from {self._from.strftime('%Y-%m-%d %H:%M:%S')} to {self._to.strftime('%Y-%m-%d %H:%M:%S %z')}."
+        return f"Task will run from {self.start.strftime('%Y-%m-%d %H:%M:%S')} to {self.end.strftime('%Y-%m-%d %H:%M:%S %z')}."
 
 

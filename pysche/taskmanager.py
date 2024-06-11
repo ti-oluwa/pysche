@@ -371,8 +371,8 @@ class TaskManager:
         delay: int | float, 
         func: Callable, 
         /, *,
-        args: Sequence[Any] = (), 
-        kwargs: Mapping[str, Any] = {}, 
+        args: Sequence[Any] = None, 
+        kwargs: Mapping[str, Any] = None, 
         task_name: str = None
     ):
         """
@@ -399,8 +399,8 @@ class TaskManager:
             func=wrapped_func,
             schedule=run_afterevery(seconds=delay),
             manager=self,
-            args=args,
-            kwargs=kwargs,
+            args=args or (),
+            kwargs=kwargs or {},
             name=task_name or f"run_{func.__name__}_after_{delay}s",
             stop_on_error=True,
             max_retries=0,
@@ -417,8 +417,8 @@ class TaskManager:
         func: Callable, 
         /, *,
         tz: str | datetime.tzinfo = None,
-        args: Sequence[Any] = (), 
-        kwargs: Mapping[str, Any] = {}, 
+        args: Sequence[Any] = None, 
+        kwargs: Mapping[str, Any] = None, 
         task_name: str = None
     ):
         """
@@ -451,8 +451,8 @@ class TaskManager:
             func=wrapped_func,
             schedule=run_afterevery(seconds=timedelta.total_seconds()),
             manager=self,
-            args=args,
-            kwargs=kwargs,
+            args=args or (),
+            kwargs=kwargs or {},
             name=task_name or f"run_{func.__name__}_on_{dt}",
             stop_on_error=True,
             max_retries=0,
@@ -469,8 +469,8 @@ class TaskManager:
         func: Callable, 
         /, *,
         tz: str | datetime.tzinfo = None,
-        args: Sequence[Any] = (), 
-        kwargs: Mapping[str, Any] = {}, 
+        args: Sequence[Any] = None, 
+        kwargs: Mapping[str, Any] = None, 
         task_name: str = None
     ):
         """
@@ -497,8 +497,8 @@ class TaskManager:
             func=wrapped_func,
             schedule=run_at(time=time, tz=tz),
             manager=self,
-            args=args,
-            kwargs=kwargs,
+            args=args or (),
+            kwargs=kwargs or {},
             name=task_name or f"run_{func.__name__}_at_{time}",
             stop_on_error=True,
             max_retries=0,
