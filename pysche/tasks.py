@@ -2,7 +2,7 @@ from __future__ import annotations
 from collections import deque
 import asyncio
 import time
-from typing import Callable, Any, Coroutine, Iterable, List, Optional, Tuple, Dict, Union
+from typing import Callable, Any, Coroutine, List, Optional, Tuple, Dict, Union
 import functools
 import datetime
 try:
@@ -11,7 +11,6 @@ except ImportError:
     from backports import zoneinfo
 from dataclasses import dataclass, field, KW_ONLY, InitVar
 from asgiref.sync import sync_to_async
-import warnings
 
 
 from .taskmanager import TaskManager
@@ -27,7 +26,7 @@ class TaskResult:
     task: ScheduledTask
     """The task that returned the result"""
     index: int
-    """The current execution index of the task when the result was returned"""
+    """The execution count of the task when the result was returned"""
     value: Any
     """The result returned by the task"""
     date_created: datetime.datetime = field(init=False)

@@ -899,7 +899,7 @@ class run_in_year(WithinMonthMixin, WithinDayMixin, InMonthMixin, OnDayMixin, Ti
     year = SetOnceDescriptor(int)
     """The year in which the task will run."""
 
-    def __init__(self, year: int, **kwargs) -> None:
+    def __init__(self, year: Union[int, str], **kwargs) -> None:
         """
         Create a schedule that will be due in the specified year.
 
@@ -924,7 +924,7 @@ class run_in_year(WithinMonthMixin, WithinDayMixin, InMonthMixin, OnDayMixin, Ti
         # run_in_year cannot have a parent. It is the highest schedule from which you can start chaining
         kwargs.pop("parent", None)
         super().__init__(**kwargs)
-        self.year = year
+        self.year = int(year)
         return None
 
     

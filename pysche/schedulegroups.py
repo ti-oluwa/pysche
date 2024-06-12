@@ -217,7 +217,6 @@ def group_schedules(*schedules: ScheduleType) -> ScheduleGroup:
     run_on_thursdays_at_3am = s.run_on_weekday(3).at("03:00:00")
     run_on_mondays_at_12pm_and_on_thursdays_at_3am = pysche.group_schedules(run_on_mondays_at_12pm, run_on_thursdays_at_3am)
 
-
     @manager.taskify(run_on_mondays_at_12pm_and_on_thursdays_at_3am)
     def do_something():
         ...
