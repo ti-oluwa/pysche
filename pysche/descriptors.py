@@ -18,7 +18,7 @@ class AttributeDescriptor(Generic[T, D]):
         attr_type: Optional[Type[T]] = None, 
         *,
         default: D = NOT_SET,
-        validators: Optional[List[Callable[[Any], Any]]] = None
+        validators: Optional[List[Callable]] = None
     ) -> None:
         """
         Initialize the descriptor

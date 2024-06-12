@@ -269,7 +269,7 @@ class ScheduledTask:
         :param msg: The message to be logged.
         :param exception: If True, the message will be logged as an exception.
         """
-        log_detail = f"{self.__class__.__name__}('{_utils.underscore_string(self.name)}', id='{self.id}', manager='{_utils.underscore_string(self.manager.name)}') >>> {msg}"
+        log_detail = f"{type(self).__name__}('{_utils.underscore_string(self.name)}', id='{self.id}', manager='{_utils.underscore_string(self.manager.name)}') >>> {msg}"
         self.manager.log(log_detail, **kwargs)
         if exception:
             kwargs.pop("level", None)
@@ -359,7 +359,7 @@ class ScheduledTask:
         kwargs = [ f"{k}={v}" for k, v in self.kwargs.items() ]
         args = [ str(arg) for arg in self.args ]
         params = ', '.join((*args, *kwargs))
-        return f"<{self.__class__.__name__} '{self.status}' name='{self.name}' id='{self.id}' func={self.func.__name__}({params})>"
+        return f"<{type(self).__name__} '{self.status}' name='{self.name}' id='{self.id}' func={self.func.__name__}({params})>"
     
 
     def __hash__(self) -> int:
@@ -367,9 +367,9 @@ class ScheduledTask:
     
 
     def __eq__(self, other: ScheduledTask) -> bool:
-        if not isinstance(other, self.__class__):
+        if not isinstance(other, type(self)):
             raise NotImplementedError(
-                f"Cannot compare '{self.__class__.__name__}' with '{other.__class__.__name__}'."
+                f"Cannot compare '{type(self).__name__}' with '{type(other).__name__}'."
             )
         return self.id == other.id
     

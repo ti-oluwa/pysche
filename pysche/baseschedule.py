@@ -5,7 +5,7 @@ import datetime
 from asgiref.sync import sync_to_async
 
 from .abc import AbstractBaseSchedule
-from ._utils import utcoffset_to_zoneinfo, get_datetime_now, _strip_description, underscore_string
+from ._utils import utcoffset_to_zoneinfo, get_datetime_now, _strip_text, underscore_string
 from .descriptors import SetOnceDescriptor, AttributeDescriptor
 
 
@@ -132,13 +132,13 @@ class Schedule(AbstractBaseSchedule):
             # if this is a standalone schedule, or this is the first schedule in a schedule clause, 
             # or the tzinfo of this schedule is different from its parent's, add the tzinfo attribute
             attrs_list.append(f"tz='{self.tz}'")
-        return f"{self.__class__.__name__.lower()}({', '.join(attrs_list)})"
+        return f"{type(self).__name__.lower()}({', '.join(attrs_list)})"
     
 
     def description(self) -> str:
-        desc = _strip_description(self.__describe__())
+        desc = _strip_text(self.__describe__())
         if self.parent:
-            desc = f"{_strip_description(self.parent.description())}, {_strip_description(desc.lower(), "task will run")}"
+            desc = f"{_strip_text(self.parent.description())}, {_strip_text(desc.lower(), "task will run")}"
         return f"{desc.capitalize()}."
 
 
@@ -166,14 +166,14 @@ class Schedule(AbstractBaseSchedule):
         return hash(str(self))
     
 
-    def __eq__(self, other: Union[ScheduleType, object]) -> bool:
+    def __eq__(self, other: ScheduleType) -> bool:
         if not isinstance(other, Schedule):
             raise NotImplementedError(
-                f"Cannot compare {self.__class__.__name__} and {other.__class__.__name__}"
+                f"Cannot compare {type(self).__name__} and {type(other).__name__}"
             )
         # Schedules/schedule clauses with the same string representation should be considered equal
         # since they will both work the same way
-        return str(self) == str(other)
+        return hash(self) == hash(other)
 
 
     def __add__(self, other: ScheduleType):

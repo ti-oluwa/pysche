@@ -59,6 +59,7 @@ class TaskManager:
     """
     log_to_console: InitVar[bool] = True
     """
+    Whether to show logs on the console.
     """
 
     # Used deque to allow for thread-safety and O(1) time complexity when removing tasks from the list
@@ -81,7 +82,7 @@ class TaskManager:
 
     def __post_init__(self, log_file: str, log_to_console: bool) -> None:
         if not self.name:
-            self.name = f"{self.__class__.__name__.lower()}{str(id(self))[-6:]}"
+            self.name = f"{type(self).__name__.lower()}{str(id(self))[-6:]}"
 
         self.logger = get_logger(
             name=f"{self.name}:logger",
@@ -94,7 +95,7 @@ class TaskManager:
     
     
     def __repr__(self) -> str:
-        return f"<{self.__class__.__name__} '{self.status}' name='{self.name}' task_count={len(self.tasks)}>"
+        return f"<{type(self).__name__} '{self.status}' name='{self.name}' task_count={len(self.tasks)}>"
     
 
     def __hash__(self) -> int:
@@ -104,7 +105,7 @@ class TaskManager:
     def __eq__(self, other: TaskManager) -> bool:
         if not isinstance(other, TaskManager):
             raise NotImplementedError(
-                f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}"
+                f"Cannot compare {type(self).__name__} with {type(other).__name__}"
             )
         return hash(self) == hash(other)
     
@@ -112,7 +113,7 @@ class TaskManager:
     def __gt__(self, other: TaskManager) -> bool:
         if not isinstance(other, TaskManager):
             raise NotImplementedError(
-                f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}"
+                f"Cannot compare {type(self).__name__} with {type(other).__name__}"
             )
         return len(self.tasks) > len(other.tasks)
     

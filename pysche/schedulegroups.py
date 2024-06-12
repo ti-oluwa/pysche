@@ -18,7 +18,6 @@ class ScheduleGroup(AbstractBaseSchedule):
     It allows a single task to be scheduled to run at multiple times without having to create multiple
     tasks doing the same thing but on different schedules.
     """
-
     schedules = SetOnceDescriptor(tuple, validators=[_utils.validate_schedules_iterable])
     """A tuple containing the schedules in the group."""
     
@@ -141,7 +140,7 @@ class ScheduleGroup(AbstractBaseSchedule):
     def __eq__(self, other: Union[ScheduleGroup, object]) -> bool:
         if not isinstance(other, ScheduleGroup):
             raise NotImplementedError(
-                f"Cannot compare {type(self).__name__} and {other.__class__.__name__}"
+                f"Cannot compare {type(self).__name__} and {type(other).__name__}"
             )
         return self.schedules == other.schedules
     
@@ -180,12 +179,12 @@ class ScheduleGroup(AbstractBaseSchedule):
         first_schedule: ScheduleType = schedules.pop(0)
         last_schedule: ScheduleType = schedules.pop(-1)
 
-        pre_desc = _utils._strip_description(first_schedule.__describe__())
+        pre_desc = _utils._strip_text(first_schedule.__describe__())
         if schedules:
-            mid_desc = ", ".join(_utils._strip_description(schedule.__describe__().lower(), "task will run") for schedule in schedules)
+            mid_desc = ", ".join(_utils._strip_text(schedule.__describe__().lower(), "task will run") for schedule in schedules)
         else:
             mid_desc = ""
-        post_desc = f"{_utils._strip_description(last_schedule.__describe__().lower(), "task will run")}"
+        post_desc = f"{_utils._strip_text(last_schedule.__describe__().lower(), "task will run")}"
 
         if not mid_desc:
             return f"{pre_desc} and {post_desc}."

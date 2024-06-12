@@ -100,8 +100,8 @@ def taskify_decorator_factory(manager: TaskManager, /):
     decorator = functools.wraps(taskify)(decorator_for_manager)
     
     manager_name = underscore_string(manager.name)
-    decorator.__name__ = f"{taskify.__name__}_decorator_for_{manager_name}"
-    decorator.__qualname__ = f"{taskify.__qualname__}_decorator_for_{manager_name}"
+    decorator.__name__ = f"{taskify.__name__}_for_{manager_name}"
+    decorator.__qualname__ = f"{taskify.__qualname__}_for_{manager_name}"
     return decorator
 
 

@@ -314,14 +314,14 @@ def str_to_month(month: str) -> int:
     )
 
 
-def _strip_description(description: str, remove_prefix: Optional[str] = None) -> str:
+def _strip_text(text: str, remove_prefix: Optional[str] = None) -> str:
     """
-    Private helper function that strips a schedule description of 
+    Private helper function that strips the given text of 
     necessary characters and remove the prefix if specified.
     """
     if remove_prefix:
-        description = description.removeprefix(remove_prefix)
-    return description.strip().rstrip(".")
+        text = text.removeprefix(remove_prefix)
+    return text.strip().rstrip(".")
 
 
 def await_future(future: asyncio.Future, *, suppress_exc: bool = False) -> Any | None:
