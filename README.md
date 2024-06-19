@@ -242,7 +242,7 @@ This schedule is used to specify the month in which a task should run. It takes 
 ...
 run_in_january = s.run_in_month(1)
 
-@run_in_january.from_weekday__to(0, 4).afterevery(hours=2)(manager=manager)
+@run_in_january.within_weekday(0, 4).afterevery(hours=2)(manager=manager)
 def send_message(msg: str):
     print(msg)
 ```
@@ -255,7 +255,7 @@ This schedule is used to specify the year in which a task should run. It takes i
 ...
 run_in_2022 = s.run_in_year(2022)
 
-@run_in_2022.from_month__to(1, 3).afterevery(weeks=1)(manager=manager)
+@run_in_2022.within_month(1, 3).afterevery(weeks=1)(manager=manager)
 def send_message(msg: str):
     print(msg)
 ```

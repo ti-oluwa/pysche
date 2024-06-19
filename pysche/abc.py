@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Callable, Coroutine, Any, List, Optional, TypedDict, Union
 import functools
 from abc import ABC, abstractmethod
+
 try:
     import zoneinfo
 except ImportError:
@@ -9,17 +10,17 @@ except ImportError:
 
 from .taskmanager import TaskManager
 from .descriptors import SetOnceDescriptor
-from ._utils import _strip_description
-
+from ._utils import _strip_text
 
 
 class AbstractBaseSchedule(ABC):
     """Abstract base class for all schedules."""
-    
+
     tz = SetOnceDescriptor(zoneinfo.ZoneInfo, default=None)
     """
     The timezone to use for the schedule. This should only be set once.
     """
+
     def __init__(self, **kwargs) -> None:
         """
         Creates a schedule.
@@ -29,15 +30,16 @@ class AbstractBaseSchedule(ABC):
         """
         tz = kwargs.get("tz", None)
         if tz and not isinstance(tz, (str, zoneinfo.ZoneInfo)):
-            raise TypeError(f"'tz' must be a string or an instance of '{zoneinfo.ZoneInfo.__name__}'")
+            raise TypeError(
+                f"'tz' must be a string or an instance of '{zoneinfo.ZoneInfo.__name__}'"
+            )
 
         self.tz = zoneinfo.ZoneInfo(tz) if tz and isinstance(tz, str) else tz
         return None
-    
 
     def __call__(
-        self, 
-        *, 
+        self,
+        *,
         manager: TaskManager,
         name: Optional[str] = None,
         tags: Optional[List[str]] = None,
@@ -46,7 +48,7 @@ class AbstractBaseSchedule(ABC):
         resultset_size: Optional[int] = None,
         stop_on_error: bool = False,
         max_retries: int = 0,
-        start_immediately: bool = True
+        start_immediately: bool = True,
     ):
         """
         Function decorator. Decorated function will run on this schedule and will be executed by the specified manager.
@@ -62,25 +64,26 @@ class AbstractBaseSchedule(ABC):
         If `save_results` is False, this will be ignored. If this is not specified, the default value will be 10.
         :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
         :param max_retries: The maximum number of times the task will be retried consecutively after an error is encountered.
-        :param start_immediately: If True, the task will start immediately after creation. 
+        :param start_immediately: If True, the task will start immediately after creation.
         This is only applicable if the manager is already running.
         Otherwise, task execution will start when the manager starts executing tasks.
         """
         from .tasks import ScheduledTask
+
         def decorator(func: Callable) -> Callable[..., ScheduledTask]:
             """Creates function that will run on this schedule"""
             if not callable(func):
                 raise TypeError(
                     f"Decorated object must be a callable not type: {type(func).__name__}"
                 )
-            
+
             @functools.wraps(func)
             def wrapper(*args, **kwargs) -> ScheduledTask:
                 return ScheduledTask(
-                    func, 
-                    self, 
-                    manager, 
-                    args=args, 
+                    func,
+                    self,
+                    manager,
+                    args=args,
                     kwargs=kwargs,
                     name=name,
                     tags=tags,
@@ -91,28 +94,24 @@ class AbstractBaseSchedule(ABC):
                     max_retries=max_retries,
                     start_immediately=start_immediately,
                 )
-            
+
             wrapper.__name__ = name or func.__name__
             return wrapper
-        
+
         return decorator
-    
 
     def __repr__(self) -> str:
         return self.as_string()
-    
 
     @abstractmethod
     def is_due(self) -> bool:
         """Returns True if the schedule is due otherwise False."""
         pass
 
-
     @abstractmethod
     def as_string(self) -> str:
         """Returns a string representation of this schedule object."""
         pass
-
 
     @abstractmethod
     def __describe__(self) -> str:
@@ -124,15 +123,15 @@ class AbstractBaseSchedule(ABC):
         """
         pass
 
-
     def __format__(self, format_spec: str) -> str:
         if format_spec.strip() == "desc":
             return self.description()
         return str(self)
-    
 
     @abstractmethod
-    def make_schedule_func_for_task(self, scheduledtask) -> Callable[..., Coroutine[Any, Any, None]]:
+    def make_schedule_func_for_task(
+        self, scheduledtask
+    ) -> Callable[..., Coroutine[Any, Any, None]]:
         """
         Returns coroutine function that runs the scheduled task on the appropriate schedule
 
@@ -145,10 +144,9 @@ class AbstractBaseSchedule(ABC):
         """
         pass
 
-
     def description(self) -> str:
         """Returns a human-readable description of the schedule."""
-        desc = _strip_description(self.__describe__().lower())
+        desc = _strip_text(self.__describe__().lower())
         if not desc.startswith("task will run"):
             raise ValueError("Description must start with 'Task will run'")
         return f"{desc.capitalize()}."

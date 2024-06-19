@@ -1,21 +1,24 @@
-
 class TaskError(Exception):
     """Base class for all exceptions raised by `Task`."""
+
     pass
 
 
 class TaskExecutionError(TaskError):
     """Raised when an error occurs while executing a `Task`."""
+
     pass
 
 
 class TaskDuplicationError(TaskError):
     """Raised when maximum number of duplicate task for a `TaskManger` is exceeded"""
+
     pass
 
 
 class UnregisteredTask(TaskError):
     """Raised when an action is performed on a task by a manager that it was not registered with."""
+
     pass
 
 
@@ -30,7 +33,7 @@ class StopTask(TaskError):
     from pysche.schedules import RunAfterEvery
 
     manager = pysche.TaskManager()
-    run_after_every_5_seconds = RunAfterEvery(seconds=5) 
+    run_after_every_5_seconds = RunAfterEvery(seconds=5)
 
     @run_after_every_5_seconds(manager=manager)
     def my_func():
@@ -44,6 +47,7 @@ class StopTask(TaskError):
             ...
     ```
     """
+
     # Why use an exception instead of a custom return value?
     # Using an exception to request cancellation allows the task to be cancelled from any depth of the call stack.
     # This is useful when the task is a coroutine that is called from another coroutine.
@@ -54,4 +58,5 @@ class StopTask(TaskError):
 
 class InsufficientArguments(ValueError):
     """Raised when a schedule group is created with insufficient schedules."""
+
     pass

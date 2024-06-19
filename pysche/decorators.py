@@ -8,7 +8,6 @@ from .schedulegroups import ScheduleGroup
 from ._utils import underscore_string
 
 
-
 def taskify(
     schedule: Union[ScheduleType, ScheduleGroup],
     manager: TaskManager,
@@ -23,8 +22,8 @@ def taskify(
     start_immediately: bool = True,
 ) -> Callable[[Callable], Callable[..., ScheduledTask]]:
     """
-    Function decorator. 
-    
+    Function decorator.
+
     Converts decorated function to a function that will return a scheduled task when called.
     The returned task will be managed by the specified manager and will be executed according to the specified schedule.
 
@@ -40,7 +39,7 @@ def taskify(
     If `save_results` is False, this will be ignored. If this is not specified, the default value will be 10.
     :param stop_on_error: If True, the task will stop running when an error is encountered during its execution.
     :param max_retries: The maximum number of times the task will be retried consecutively after an error is encountered.
-    :param start_immediately: If True, the task will start immediately after creation. 
+    :param start_immediately: If True, the task will start immediately after creation.
     This is only applicable if the manager is already running.
     Otherwise, task execution will start when the manager starts executing tasks.
     """
@@ -56,7 +55,6 @@ def taskify(
         start_immediately=start_immediately,
     )
     return decorator
-
 
 
 def taskify_decorator_factory(manager: TaskManager, /):
@@ -77,15 +75,15 @@ def taskify_decorator_factory(manager: TaskManager, /):
     @taskify(s.run_afterevery(seconds=10), ...)
     def function_one():
         pass
-        
-    
+
+
     @taskify(s.run_at("20:00:00"), ...)
     def function_two():
         pass
-        
-    
+
+
     def main():
-        manager.start() 
+        manager.start()
 
         task_one = function_one()
         task_two = function_two()
@@ -98,16 +96,16 @@ def taskify_decorator_factory(manager: TaskManager, /):
     """
     decorator_for_manager = functools.partial(taskify, manager=manager)
     decorator = functools.wraps(taskify)(decorator_for_manager)
-    
+
     manager_name = underscore_string(manager.name)
     decorator.__name__ = f"{taskify.__name__}_for_{manager_name}"
     decorator.__qualname__ = f"{taskify.__qualname__}_for_{manager_name}"
     return decorator
 
 
-  
-
-def onerror(callback: Callable) -> Callable[..., Callable[..., Union[ScheduledTask, Any]]]:
+def onerror(
+    callback: Callable,
+) -> Callable[..., Callable[..., Union[ScheduledTask, Any]]]:
     """
     Adds an error callback to the task returned by the "taskified" function.
     The callback will be called when any error is encountered during the task's execution.
@@ -133,12 +131,15 @@ def onerror(callback: Callable) -> Callable[..., Callable[..., Union[ScheduledTa
     def main():
         with manager.execute_till_idle():
             function()
-    
+
     if __name__ == "__main__":
         main()
     ```
     """
-    def decorator(taskified: Callable[..., ScheduledTask]) -> Callable[..., ScheduledTask]:
+
+    def decorator(
+        taskified: Callable[..., ScheduledTask],
+    ) -> Callable[..., ScheduledTask]:
         @functools.wraps(taskified)
         def wrapper(*args, **kwargs) -> ScheduledTask:
             task = taskified(*args, **kwargs)
@@ -151,5 +152,5 @@ def onerror(callback: Callable) -> Callable[..., Callable[..., Union[ScheduledTa
             return task
 
         return wrapper
-    
+
     return decorator

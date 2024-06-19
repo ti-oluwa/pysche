@@ -5,6 +5,7 @@ import time
 from typing import Callable, Any, Coroutine, List, Optional, Tuple, Dict, Union
 import functools
 import datetime
+
 try:
     import zoneinfo
 except ImportError:
@@ -17,12 +18,12 @@ from .taskmanager import TaskManager
 from .baseschedule import ScheduleType, NO_RESULT
 from . import _utils
 from .exceptions import StopTask, TaskError, TaskExecutionError
-    
 
 
 @dataclass(slots=True, frozen=True)
 class TaskResult:
     """Encapsulates a result returned by a task after execution."""
+
     task: ScheduledTask
     """The task that returned the result"""
     index: int
@@ -33,7 +34,9 @@ class TaskResult:
     """The time the result was created"""
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, 'date_created', _utils.get_datetime_now(self.task.schedule.tz))
+        object.__setattr__(
+            self, "date_created", _utils.get_datetime_now(self.task.schedule.tz)
+        )
         return None
 
     # For sorting purposes
@@ -43,13 +46,12 @@ class TaskResult:
         return self.index > other.index and self.date_created > other.date_created
 
 
-
 @dataclass(slots=True)
 class ScheduledTask:
     """
     Runs a function on a specified schedule.
 
-    Scheduled tasks always run concurrently in the background, not 
+    Scheduled tasks always run concurrently in the background, not
     necessarily in the order they were created.
 
     Example:
@@ -75,7 +77,7 @@ class ScheduledTask:
         )
         # Tell manager to start executing tasks
         manager.start()
-        print(manager.is_managing(task)) 
+        print(manager.is_managing(task))
         # >>> True
         # Tell manager to wait for all tasks to finish executing before proceeding
         manager.join()
@@ -84,6 +86,7 @@ class ScheduledTask:
         main()
     ```
     """
+
     func: Union[Callable, Callable[..., Coroutine]]
     """The function to be scheduled."""
     schedule: ScheduleType
@@ -135,7 +138,7 @@ class ScheduledTask:
     """A unique identifier for this task"""
     started_at: datetime.datetime = field(default=None, init=False)
     """The time the task was allowed to start execution"""
-    resultset: Optional[deque[TaskResult]]= field(default=None, init=False)
+    resultset: Optional[deque[TaskResult]] = field(default=None, init=False)
     """A deque containing results returned from each iteration of execution of this tasks."""
     _is_active: bool = field(default=False, init=False)
     """True if task has been scheduled for execution and has started been executed."""
@@ -149,12 +152,14 @@ class ScheduledTask:
     """The last time this task was executed (in the timezone in which the task was scheduled)"""
     _exc_count: int = field(default=0, init=False)
     """The number of times the task has been executed (successfully or not) since it started."""
-    _exc: Exception = None # added to be used by schedule groups
+    _exc: Optional[Exception] = field(
+        default=None, init=False
+    )  # added to be used by schedule groups
 
     def __post_init__(self, start_immediately: bool) -> None:
         if not self.name:
             self.name = self.func.__name__
-        
+
         func = self.func
         # If the function is not a coroutine, convert it to a coroutine
         if not asyncio.iscoroutinefunction(func):
@@ -169,7 +174,9 @@ class ScheduledTask:
 
         if self.save_results is True:
             if self.resultset_size is not None and self.resultset_size < 1:
-                raise ValueError("resultset_size must be greater than 0 if save_results is True.")
+                raise ValueError(
+                    "resultset_size must be greater than 0 if save_results is True."
+                )
             self.resultset = deque(maxlen=self.resultset_size or 10)
 
         if start_immediately is True:
@@ -182,42 +189,42 @@ class ScheduledTask:
         Returns True if task is currently being executed or is scheduled for execution.
         """
         return self._is_active and not self.stopped
-    
+
     @property
     def is_paused(self) -> bool:
         """
         Returns True if further execution of an active task is currently suspended.
         """
         return self._is_paused and self.is_active
-    
+
     @property
     def failed(self) -> bool:
         """Returns True if task execution failed at some point"""
         return self._failed
-    
+
     @property
     def stopped(self) -> bool:
         """
-        Returns True if the task has stopped executing either because 
+        Returns True if the task has stopped executing either because
         it was cancelled, it failed or got an exception.
         """
         # Check if the future handling this task's coroutine is done or not
         future = self.manager._get_future(self.id)
         if future:
             return future.done()
-        
+
         # If the future cannot be found and the task is already active, raise a runtime error
         if self.is_active:
             raise TaskError(
                 f"Cannot find future for task '{self.name}[id={self.id}]' in '{self.manager.name}'. Tasks are out of sync with futures.\n"
             )
         return False
-    
+
     @property
     def errors(self) -> List[Exception]:
         """Returns a list of errors"""
         return self._errors
-    
+
     @property
     def last_executed_at(self) -> datetime.datetime | None:
         """Returns the last time this task was executed (in the timezone in which the task was scheduled)"""
@@ -227,7 +234,7 @@ class ScheduledTask:
     def execution_count(self) -> int:
         """The number of times the task has been executed (successfully or not) since it started."""
         return self._exc_count
-    
+
     @property
     def status(self):
         if self.stopped:
@@ -239,7 +246,6 @@ class ScheduledTask:
         elif self.is_active:
             return "active"
         return "pending"
-
 
     def add_tag(self, tag: str, /):
         """
@@ -253,13 +259,11 @@ class ScheduledTask:
             self.tags.append(tag)
         return None
 
-
     def remove_tag(self, tag: str, /):
         """Remove a tag from the task"""
         if tag in self.tags:
             self.tags.remove(tag)
         return None
-    
 
     def log(self, msg: str, exception: str = False, **kwargs) -> None:
         """
@@ -272,14 +276,17 @@ class ScheduledTask:
         self.manager.log(log_detail, **kwargs)
         if exception:
             kwargs.pop("level", None)
-            self.manager.log("An exception occurred: ", level="DEBUG", exc_info=1, **kwargs)
+            self.manager.log(
+                "An exception occurred: ", level="DEBUG", exc_info=1, **kwargs
+            )
         return None
 
-    
     async def __call__(self) -> Coroutine[Any, Any, None]:
         """Returns a coroutine that will be run to execute this task"""
         if self.stopped:
-            raise TaskExecutionError(f"Execution of {self.name} has already been stopped. {self.name} cannot be called.")
+            raise TaskExecutionError(
+                f"Execution of {self.name} has already been stopped. {self.name} cannot be called."
+            )
 
         if self.execute_then_wait is True:
             # Execute the task first if execute_then_wait is True.
@@ -300,9 +307,11 @@ class ScheduledTask:
             try:
                 result = await schedule_func(*self.args, **self.kwargs)
             except (
-                SystemExit, KeyboardInterrupt, 
-                asyncio.CancelledError, RuntimeError
-            ):  
+                SystemExit,
+                KeyboardInterrupt,
+                asyncio.CancelledError,
+                RuntimeError,
+            ):
                 break
 
             except StopTask as exc:
@@ -321,14 +330,17 @@ class ScheduledTask:
                     self._failed = True
                     self.log("Task execution failed.", level="CRITICAL")
                     break
-                
+
                 err_count += 1
-                self.log(f"Retrying task execution. Retries remaining: {self.max_retries - err_count}.", level="WARNING")
+                self.log(
+                    f"Retrying task execution. Retries remaining: {self.max_retries - err_count}.",
+                    level="WARNING",
+                )
                 continue
 
             else:
                 self._exc_count += 1
-                # Ensures that the maximum allowed retries is reset 
+                # Ensures that the maximum allowed retries is reset
                 # peradventure an error has occurred before, but it was resolved.
                 err_count = 0
                 # Add result to resultset if necessary
@@ -340,12 +352,11 @@ class ScheduledTask:
             self.log("Task execution stopped.")
             self._is_active = False
         return None
-    
 
     def _add_result(self, result: Any) -> None:
         """
         Adds a result to the resultset if save_results is True
-        
+
         Ignores the result if it is `NO_RESULT`
         """
         if self.save_results is True and result is not NO_RESULT:
@@ -353,17 +364,14 @@ class ScheduledTask:
             self.resultset.append(task_result)
         return None
 
-    
     def __repr__(self) -> str:
-        kwargs = [ f"{k}={v}" for k, v in self.kwargs.items() ]
-        args = [ str(arg) for arg in self.args ]
-        params = ', '.join((*args, *kwargs))
+        kwargs = [f"{k}={v}" for k, v in self.kwargs.items()]
+        args = [str(arg) for arg in self.args]
+        params = ", ".join((*args, *kwargs))
         return f"<{type(self).__name__} '{self.status}' name='{self.name}' id='{self.id}' func={self.func.__name__}({params})>"
-    
 
     def __hash__(self) -> int:
         return hash(self.id)
-    
 
     def __eq__(self, other: ScheduledTask) -> bool:
         if not isinstance(other, type(self)):
@@ -371,7 +379,6 @@ class ScheduledTask:
                 f"Cannot compare '{type(self).__name__}' with '{type(other).__name__}'."
             )
         return self.id == other.id
-    
 
     def stats_wrap(self, func: Callable[..., Coroutine]) -> Callable[..., Coroutine]:
         """Wrap coroutine function to log time stats"""
@@ -383,15 +390,15 @@ class ScheduledTask:
         async def wrapper(*args, **kwargs) -> Any:
             self.log("Executing task...")
             start_timestamp = time.perf_counter()
-            
             result = await func(*args, **kwargs)
             end_timestamp = time.perf_counter()
 
-            self.log(f"Task execution completed in {end_timestamp - start_timestamp:.8f} seconds.")
+            self.log(
+                f"Task execution completed in {end_timestamp - start_timestamp:.8f} seconds."
+            )
             return result
-        
-        return wrapper
 
+        return wrapper
 
     def start(self) -> None:
         """
@@ -401,9 +408,11 @@ class ScheduledTask:
         Also, the task will not start until its manager has started.
         """
         if any((self.is_active, self.is_paused, self.failed, self.stopped)):
-            raise TaskExecutionError(f"Cannot start '{self.name}'. '{self.name}' is {self.status}.")
-        
-        # Task starts automatically if manager has already started task execution 
+            raise TaskExecutionError(
+                f"Cannot start '{self.name}'. '{self.name}' is {self.status}."
+            )
+
+        # Task starts automatically if manager has already started task execution
         # else, it waits for the manager to start
         self.manager._run_in_workthread(self, append=True)
         if self.manager.is_active:
@@ -413,7 +422,6 @@ class ScheduledTask:
         self.started_at = _utils.get_datetime_now(self.schedule.tz)
         self.log("Task execution started.")
         return None
-        
 
     def join(self) -> None:
         """Wait for task to finish executing before proceeding"""
@@ -425,23 +433,27 @@ class ScheduledTask:
             self.stop(wait=True)
             raise exc
         return None
-    
 
     def pause(self) -> None:
         """Pause task. Stops task execution, temporarily"""
         if self.stopped:
-            raise TaskExecutionError(f"Cannot pause '{self.name}'. '{self.name}' has been stopped.")
+            raise TaskExecutionError(
+                f"Cannot pause '{self.name}'. '{self.name}' has been stopped."
+            )
         elif self.failed:
-            raise TaskExecutionError(f"Cannot pause '{self.name}'. '{self.name}' has failed.")
+            raise TaskExecutionError(
+                f"Cannot pause '{self.name}'. '{self.name}' has failed."
+            )
         elif not self.is_active:
-            raise TaskExecutionError(f"Cannot pause '{self.name}'. '{self.name}' has not started yet.")
-        
+            raise TaskExecutionError(
+                f"Cannot pause '{self.name}'. '{self.name}' has not started yet."
+            )
+
         if self.is_paused:
             return
         self._is_paused = True
         self.log("Task execution paused.")
         return None
-    
 
     def resume(self) -> None:
         """Resume paused task"""
@@ -451,7 +463,6 @@ class ScheduledTask:
         self._is_paused = False
         self.log("Task execution resumed.")
         return None
-    
 
     def pause_after(self, delay: int | float, /) -> ScheduledTask:
         """
@@ -460,32 +471,39 @@ class ScheduledTask:
         :param delay: The delay in seconds after which this task will be paused
         :return: The created task
         """
-        return self.manager.run_after(delay, self.pause, task_name=f"pause_{self.name}_after_{delay}s")
-
+        return self.manager.run_after(
+            delay, self.pause, task_name=f"pause_{self.name}_after_{delay}s"
+        )
 
     def pause_for(self, seconds: int | float, /) -> ScheduledTask:
         """
         Pauses this task and creates a new task to resume this task after the specified number of seconds
 
         :param seconds: The number of seconds to pause this task for
-        :return: The created task 
+        :return: The created task
         """
         self.pause()
-        return self.manager.run_after(seconds, self.resume, task_name=f"resume_{self.name}_after_{seconds}s")
-
+        return self.manager.run_after(
+            seconds, self.resume, task_name=f"resume_{self.name}_after_{seconds}s"
+        )
 
     def pause_until(self, time: str, /) -> ScheduledTask:
         """
-        Pauses this task and creates a new task to resume this task at specified time. 
+        Pauses this task and creates a new task to resume this task at specified time.
 
         :param time: The time to resume this task. Time should be in the format 'HH:MM' or 'HH:MM:SS'
         :return: The created task
         """
         self.pause()
-        return self.manager.run_at(time, self.resume, task_name=f"resume_{self.name}_at_{_utils.underscore_datetime(time)}")
-    
+        return self.manager.run_at(
+            time,
+            self.resume,
+            task_name=f"resume_{self.name}_at_{_utils.underscore_datetime(time)}",
+        )
 
-    def pause_on(self, datetime: str, /, tz: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> ScheduledTask:
+    def pause_on(
+        self, datetime: str, /, tz: datetime.tzinfo | zoneinfo.ZoneInfo = None
+    ) -> ScheduledTask:
         """
         Creates a new task to pause this task on the specified datetime.
 
@@ -494,8 +512,12 @@ class ScheduledTask:
         :return: The created task
         """
         tz = tz or self.schedule.tz
-        return self.manager.run_on(datetime, self.pause, tz=tz, task_name=f"pause_{self.name}_on_{_utils.underscore_datetime(datetime)}")
-    
+        return self.manager.run_on(
+            datetime,
+            self.pause,
+            tz=tz,
+            task_name=f"pause_{self.name}_on_{_utils.underscore_datetime(datetime)}",
+        )
 
     def pause_at(self, time: str, /) -> ScheduledTask:
         """
@@ -504,9 +526,12 @@ class ScheduledTask:
         :param time: The time to pause this task. Time should be in the format 'HH:MM:SS'
         :return: The created task
         """
-        return self.manager.run_at(time, self.pause, task_name=f"pause_{self.name}_at_{_utils.underscore_datetime(time)}")
-    
-    
+        return self.manager.run_at(
+            time,
+            self.pause,
+            task_name=f"pause_{self.name}_at_{_utils.underscore_datetime(time)}",
+        )
+
     def stop(self, wait: bool = True) -> None:
         """
         Stop task. Stopping a task will invalidate task execution by the manager.
@@ -519,7 +544,7 @@ class ScheduledTask:
         future = self.manager._get_future(self.id)
         if future is None:
             if self.is_active or self.last_executed_at:
-                # If task is being executed or has been executed before and a future cannot 
+                # If task is being executed or has been executed before and a future cannot
                 # be found for the task, then `manager._futures` has been tampered with.
                 # Raise a runtime error for this
                 raise TaskError(
@@ -533,7 +558,6 @@ class ScheduledTask:
             time.sleep(0.1)
         return None
 
-
     def stop_after(self, delay: int | float, /, **kwargs) -> ScheduledTask:
         """
         Creates a new task that stops this task after specified delay in seconds
@@ -542,9 +566,11 @@ class ScheduledTask:
         :return: The created task
         """
         return self.manager.run_after(
-            delay, self.stop, task_name=f"stop_{self.name}_after_{delay}s", kwargs=kwargs
+            delay,
+            self.stop,
+            task_name=f"stop_{self.name}_after_{delay}s",
+            kwargs=kwargs,
         )
-    
 
     def stop_at(self, time: str, /, **kwargs) -> ScheduledTask:
         """
@@ -554,11 +580,15 @@ class ScheduledTask:
         :return: The created task
         '"""
         return self.manager.run_at(
-            time, self.stop, task_name=f"stop_{self.name}_at_{_utils.underscore_datetime(time)}", kwargs=kwargs
+            time,
+            self.stop,
+            task_name=f"stop_{self.name}_at_{_utils.underscore_datetime(time)}",
+            kwargs=kwargs,
         )
-    
 
-    def stop_on(self, datetime: str, /, tz: datetime.tzinfo | zoneinfo.ZoneInfo = None, **kwargs) -> ScheduledTask:
+    def stop_on(
+        self, datetime: str, /, tz: datetime.tzinfo | zoneinfo.ZoneInfo = None, **kwargs
+    ) -> ScheduledTask:
         """
         Creates a new task that stops this task at the specified datetime
 
@@ -568,16 +598,18 @@ class ScheduledTask:
         """
         tz = tz or self.schedule.tz
         return self.manager.run_on(
-            datetime, self.stop, tz=tz, task_name=f"stop_{self.name}_on_{_utils.underscore_datetime(datetime)}", kwargs=kwargs
+            datetime,
+            self.stop,
+            tz=tz,
+            task_name=f"stop_{self.name}_on_{_utils.underscore_datetime(datetime)}",
+            kwargs=kwargs,
         )
-
 
     def get_results(self) -> List[TaskResult]:
         """
         Returns an ordered list of results returned from each iteration of execution of this tasks.
         """
         return list(self.resultset) if self.resultset else []
-
 
     def add_error_callback(self, callback: Callable) -> None:
         """
@@ -603,8 +635,6 @@ class ScheduledTask:
                 self.manager._run_in_workthread(callback, False, self, exc)
                 raise exc
             return result
-        
+
         self.func = wrapper
         return None
-
-

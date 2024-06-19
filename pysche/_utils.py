@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Any, Optional, TextIO, final, Iterable, Coroutine, Union
 import datetime
 import sys
+
 try:
     import zoneinfo
 except ImportError:
@@ -24,7 +25,9 @@ def utcoffset_to_zoneinfo(offset: datetime.timedelta) -> zoneinfo.ZoneInfo:
     offset_seconds = offset.total_seconds() if offset is not None else 0
     # Generate a time zone name based on the UTC offset. If offset is positive
     # Then GMT is behind the timezone (GMT-) else GMT is ahead (GMT+)
-    zone_name = f"Etc/GMT{'-' if offset_seconds >= 0 else '+'}{int(abs(offset_seconds)//3600)}"
+    zone_name = (
+        f"Etc/GMT{'-' if offset_seconds >= 0 else '+'}{int(abs(offset_seconds)//3600)}"
+    )
 
     try:
         # Try to load the ZoneInfo object for the calculated time zone
@@ -42,15 +45,15 @@ def parse_time(time: str, tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo) -> dateti
     """
     if not isinstance(time, str):
         raise TypeError(f"Expected time to be of type str not {type(time).__name__}")
-    
+
     split = time.split(":")
     length = len(split)
     if length != 3:
         if length == 2:
             split.append("00")
         else:
-            raise ValueError("Time must be in the format, 'HH:MM' or 'HH:MM:SS'") 
-        
+            raise ValueError("Time must be in the format, 'HH:MM' or 'HH:MM:SS'")
+
     hour, minute, second = split
     tzinfo = tzinfo or get_datetime_now().tzinfo
     return datetime.time(
@@ -69,15 +72,21 @@ def construct_datetime_from_time(time: datetime.time) -> datetime.datetime:
 
     :param time: The time.
     """
-    return get_datetime_now(time.tzinfo).replace(
-        hour=time.hour,
-        minute=time.minute,
-        second=time.second,
-        microsecond=0,
-    ).astimezone()
+    return (
+        get_datetime_now(time.tzinfo)
+        .replace(
+            hour=time.hour,
+            minute=time.minute,
+            second=time.second,
+            microsecond=0,
+        )
+        .astimezone()
+    )
 
 
-def parse_datetime(dt: str, tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> datetime.datetime:
+def parse_datetime(
+    dt: str, tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo = None
+) -> datetime.datetime:
     """
     Parse a datetime string in "%Y-%m-%d %H:%M:%S" format into a datetime.datetime object.
     The datetime object is converted to the specified timezone on return. If no timezone is provided,
@@ -86,10 +95,16 @@ def parse_datetime(dt: str, tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo = None) 
     :param dt: datetime string.
     """
     tzinfo = tzinfo or get_datetime_now().tzinfo
-    return datetime.datetime.strptime(dt, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tzinfo).astimezone()
+    return (
+        datetime.datetime.strptime(dt, "%Y-%m-%d %H:%M:%S")
+        .replace(tzinfo=tzinfo)
+        .astimezone()
+    )
 
 
-def get_datetime_now(tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> datetime.datetime:
+def get_datetime_now(
+    tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo = None,
+) -> datetime.datetime:
     """
     Returns the current datetime converted to the specified timezone.
     It basically calls `datetime.datetime.now(tz=tzinfo).astimezone()`
@@ -99,12 +114,14 @@ def get_datetime_now(tzinfo: datetime.tzinfo | zoneinfo.ZoneInfo = None) -> date
     return datetime.datetime.now(tz=tzinfo).astimezone()
 
 
-
 class MinMaxValidator:
     """
     Validates that value is not less than minimum value and not greater than maximum value
     """
-    def __init__(self, min_value: Optional[int] = None, max_value: Optional[int] = None):
+
+    def __init__(
+        self, min_value: Optional[int] = None, max_value: Optional[int] = None
+    ):
         """
         Instantiate validator
 
@@ -121,7 +138,6 @@ class MinMaxValidator:
         self.max_value = max_value
         return None
 
-
     def __call__(self, value: int) -> bool:
         """
         Validate value
@@ -131,14 +147,13 @@ class MinMaxValidator:
         """
         if not isinstance(value, int):
             raise ValueError("Value must be an integer")
-        
+
         is_valid = True
         if self.min_value is not None:
             is_valid = is_valid and value >= self.min_value
         if self.max_value is not None:
             is_valid = is_valid and value <= self.max_value
         return is_valid
-
 
 
 def get_current_datetime(with_tz: bool = False) -> str:
@@ -153,16 +168,16 @@ def get_current_datetime(with_tz: bool = False) -> str:
     return datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
-
 @final
 class _RedirectStandardOutputStream:
     """
-    Context manager that redirects all standard output streams within the block 
+    Context manager that redirects all standard output streams within the block
     to a stream that will 'always' write to console (stderr by default).
 
     Can be used to ensure that all output streams are written to console, even if
     the output stream is in a different thread.
     """
+
     __slots__ = ("stream", "og_stdout")
 
     def __init__(self, redirect_to: TextIO = sys.stderr):
@@ -171,7 +186,7 @@ class _RedirectStandardOutputStream:
         return None
 
     def __call__(self, __o: Any, /) -> Any:
-        return self.stream.write(str(__o))    
+        return self.stream.write(str(__o))
 
     def __enter__(self):
         # Store the original sys.stdout when entering the block
@@ -179,11 +194,10 @@ class _RedirectStandardOutputStream:
         # Redirect sys.stdout to the preferred stream
         sys.stdout = self.stream
         return self
-    
+
     def __exit__(self, exc_type, exc_value, traceback):
         # Restore the original sys.stdout when exiting the block
         sys.stdout = self.og_stdout
-
 
 
 def underscore_string(__s: str, /, replaceables: tuple[str, ...] = None) -> str:
@@ -215,12 +229,15 @@ def generate_random_id(length: int = 6) -> str:
 def ensure_value_is_null(value: Any) -> None:
     """Private validator to ensure that the `wait_duration` value of a time period schedule is null."""
     if not isinstance(value, null):
-        raise ValueError(f"Expected value to be of type '{null.__name__}', not '{type(value).__name__}'.")
+        raise ValueError(
+            f"Expected value to be of type '{null.__name__}', not '{type(value).__name__}'."
+        )
     return
 
 
 def validate_schedules_iterable(value: Iterable) -> None:
     from .schedules import Schedule
+
     for item in value:
         if not isinstance(item, Schedule):
             raise TypeError("All items in the iterable must be instances of 'Schedule'")
@@ -279,10 +296,11 @@ def str_to_weekday(weekday: str) -> int:
 
 def month_to_str(month: int) -> str:
     """Convert month integer to string."""
-    return datetime.date(2000, month, 1).strftime('%B')
+    return datetime.date(2000, month, 1).strftime("%B")
 
 
 def str_to_month(month: str) -> int:
+    """Convert month string to integer."""
     month = month.lower()
     if month == "january":
         return 1
@@ -316,7 +334,7 @@ def str_to_month(month: str) -> int:
 
 def _strip_text(text: str, remove_prefix: Optional[str] = None) -> str:
     """
-    Private helper function that strips the given text of 
+    Private helper function that strips the given text of
     necessary characters and remove the prefix if specified.
     """
     if remove_prefix:
@@ -333,9 +351,10 @@ def await_future(future: asyncio.Future, *, suppress_exc: bool = False) -> Any |
 
     :param future: The future to await.
     :param suppress_exc: Whether to suppress exceptions or not.
-    :return: The result of the awaited future or 
+    :return: The result of the awaited future or
     None if an exception occurred and suppress_exc is True.
     """
+
     async def wrapper() -> Any | None:
         try:
             return await future
@@ -343,4 +362,5 @@ def await_future(future: asyncio.Future, *, suppress_exc: bool = False) -> Any |
             if not suppress_exc:
                 raise exc
         return None
+
     return asyncio.run(wrapper())

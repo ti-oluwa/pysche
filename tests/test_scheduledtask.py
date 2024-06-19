@@ -1,22 +1,34 @@
+import time
+import os
 import asyncio
 import datetime
 import unittest
 
 from pysche.schedules import run_afterevery
-from pysche.tasks import ScheduledTask, TaskCallback, CallbackTrigger
-from pysche.pysche.taskmanager import TaskManager
+from pysche.tasks import ScheduledTask, TaskResult
+from pysche.taskmanager import TaskManager
 from pysche.exceptions import TaskExecutionError
-from tests.mock import count_to_ten, raise_exception, print_helloworld, generic_callback
-
+from tests.mock_functions import (
+    count_to_ten,
+    raise_exception,
+    print_helloworld,
+    error,
+    error_callback,
+)
 
 
 class TestScheduledTask(unittest.TestCase):
-    
     def setUp(self) -> None:
-        self.manager = TaskManager("testmanager")
+        self.log_path = "./tests/fixtures/logs.log"
+        self.manager = TaskManager(
+            name="testmanager", log_to_console=False, log_file=self.log_path
+        )
         self.manager.start()
-        return super().setUp()
+        return None
 
+    def tearDown(self) -> None:
+        self.manager.stop()
+        return None
 
     def test_init(self):
         task1 = ScheduledTask(
@@ -24,13 +36,13 @@ class TestScheduledTask(unittest.TestCase):
             schedule=run_afterevery(seconds=5),
             manager=self.manager,
             name="count_to_ten_every_5_seconds",
-            start_immediately=False
+            start_immediately=False,
         )
         task2 = ScheduledTask(
             print_helloworld,
             schedule=run_afterevery(seconds=5),
             manager=self.manager,
-            start_immediately=True
+            start_immediately=True,
         )
 
         self.assertIsInstance(task1, ScheduledTask)
@@ -44,8 +56,6 @@ class TestScheduledTask(unittest.TestCase):
 
         self.assertFalse(task1 == task2)
         self.assertTrue(task1 == task1)
-        del task1, task2
-
 
     def test_add_tag(self):
         task = ScheduledTask(
@@ -54,11 +64,10 @@ class TestScheduledTask(unittest.TestCase):
             manager=self.manager,
             tags=["tag1", "tag2"],
         )
+
         task.add_tag("tag3")
         self.assertEqual(task.tags, ["tag1", "tag2", "tag3"])
-        del task
 
-    
     def test_remove_tag(self):
         task = ScheduledTask(
             raise_exception,
@@ -66,13 +75,12 @@ class TestScheduledTask(unittest.TestCase):
             manager=self.manager,
             tags=["tag1", "tag2"],
         )
+
         task.remove_tag("tag3")
         self.assertEqual(task.tags, ["tag1", "tag2"])
 
         task.remove_tag("tag2")
         self.assertEqual(task.tags, ["tag1"])
-        del task
-        
 
     def test_log(self):
         task = ScheduledTask(
@@ -81,18 +89,19 @@ class TestScheduledTask(unittest.TestCase):
             manager=self.manager,
             tags=["tag1", "tag2"],
         )
+
         try:
             task.log("This is a log message")
-        except Exception as e:
-            self.fail(f"Unexpected exception: {e}")
+        except Exception as exc:
+            self.fail(f"Unexpected exception: {exc}")
 
-    
     def test_call(self):
         task = ScheduledTask(
             raise_exception,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
         )
+
         task_coroutine = task()
         self.assertTrue(asyncio.iscoroutine(task_coroutine))
         try:
@@ -100,8 +109,6 @@ class TestScheduledTask(unittest.TestCase):
             task.join()
         except Exception as exc:
             self.fail(f"Unexpected exception: {exc}")
-        del task
-
 
     def test_equality(self):
         task1 = ScheduledTask(
@@ -117,15 +124,13 @@ class TestScheduledTask(unittest.TestCase):
 
         self.assertFalse(task1 == task2)
         self.assertTrue(task1 == task1)
-        del task1, task2
-
 
     def test_start(self):
         task = ScheduledTask(
             print_helloworld,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
-            start_immediately=False
+            start_immediately=False,
         )
         self.assertFalse(task.is_active)
 
@@ -145,37 +150,27 @@ class TestScheduledTask(unittest.TestCase):
 
         task.start()
         self.assertTrue(task.is_active)
-        del task
-
 
     def test_join(self):
         task = ScheduledTask(
             raise_exception,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
-            start_immediately=True
+            start_immediately=True,
         )
+
         self.assertTrue(task.is_active)
         task.join()
         self.assertFalse(task.is_active)
-        del task
-
 
     def test_pause(self):
         task = ScheduledTask(
             count_to_ten,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
-            start_immediately=True
+            start_immediately=True,
         )
         self.assertTrue(task.is_active)
-
-        with self.assertRaises(TaskExecutionError):
-            task._is_paused = True
-            try:
-                task.pause()
-            finally:
-                task._is_paused = False
 
         with self.assertRaises(TaskExecutionError):
             task._is_active = False
@@ -192,204 +187,212 @@ class TestScheduledTask(unittest.TestCase):
                 task._failed = False
 
         self.assertFalse(task.is_paused)
+
         task.pause()
         self.assertTrue(task.is_active)
         self.assertTrue(task.is_paused)
-        del task
 
-    
     def test_resume(self):
         task = ScheduledTask(
             raise_exception,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
-            start_immediately=True
+            start_immediately=True,
         )
+
         self.assertTrue(task.is_active)
         self.assertFalse(task.is_paused)
+
         task.pause()
         self.assertTrue(task.is_active)
         self.assertTrue(task.is_paused)
+
         task.resume()
         self.assertTrue(task.is_active)
         self.assertFalse(task.is_paused)
-        del task
 
-
-    def test_cancel(self):
+    def test_stop(self):
         task = ScheduledTask(
             raise_exception,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
         )
+
         self.assertTrue(task.is_active)
         self.assertFalse(task.cancelled)
-        task.cancel()
+
+        task.stop()
         self.assertFalse(task.is_active)
         self.assertTrue(task.cancelled)
-
 
     def test_pause_after(self):
         task = ScheduledTask(
             count_to_ten,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
-            start_immediately=True
+            start_immediately=True,
         )
+
         self.assertFalse(task.is_paused)
         pause_task = task.pause_after(2)
         pause_task.join()
         self.assertTrue(task.is_paused)
-        del task
 
-    
     def test_pause_until(self):
         task = ScheduledTask(
             count_to_ten,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
-            start_immediately=True
+            start_immediately=True,
         )
-        two_seconds_from_now_time = (datetime.datetime.now() + datetime.timedelta(seconds=2)).strftime("%H:%M:%S")
-        pause_task = task.pause_until(two_seconds_from_now_time)
+
+        two_seconds_from_now = (
+            datetime.datetime.now() + datetime.timedelta(seconds=2)
+        ).strftime("%H:%M:%S")
+        pause_task = task.pause_until(two_seconds_from_now)
+
         self.assertTrue(task.is_paused)
         pause_task.join()
         self.assertFalse(task.is_paused)
-        del task
-
 
     def test_pause_for(self):
         task = ScheduledTask(
             count_to_ten,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
-            start_immediately=True
+            start_immediately=True,
         )
+
         self.assertFalse(task.is_paused)
         pause_task = task.pause_for(2)
         self.assertTrue(task.is_paused)
         pause_task.join()
         self.assertFalse(task.is_paused)
-        del task
 
-    
     def test_pause_at(self):
         task = ScheduledTask(
             count_to_ten,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
-            start_immediately=True
+            start_immediately=True,
         )
-        two_seconds_from_now_time = (datetime.datetime.now() + datetime.timedelta(seconds=2)).strftime("%H:%M:%S")
-        pause_task = task.pause_at(two_seconds_from_now_time)
+
+        two_seconds_from_now = (
+            datetime.datetime.now() + datetime.timedelta(seconds=2)
+        ).strftime("%H:%M:%S")
+        pause_task = task.pause_at(two_seconds_from_now)
+
         self.assertFalse(task.is_paused)
         pause_task.join()
         self.assertTrue(task.is_paused)
-        del task
-
 
     def test_pause_on(self):
         task = ScheduledTask(
             count_to_ten,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
-            start_immediately=True
+            start_immediately=True,
         )
-        two_seconds_from_now_dt = (datetime.datetime.now() + datetime.timedelta(seconds=2)).strftime("%Y-%m-%d %H:%M:%S")
+
+        two_seconds_from_now_dt = (
+            datetime.datetime.now() + datetime.timedelta(seconds=2)
+        ).strftime("%Y-%m-%d %H:%M:%S")
         pause_task = task.pause_on(two_seconds_from_now_dt)
+
         self.assertFalse(task.is_paused)
         pause_task.join()
         self.assertTrue(task.is_paused)
-        del task
 
-
-    def test_cancel_after(self):
+    def test_stop_after(self):
         task = ScheduledTask(
             count_to_ten,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
-            start_immediately=True
+            start_immediately=True,
         )
-        cancel_task = task.cancel_after(2)
+
+        stop_task = task.stop_after(2)
         self.assertFalse(task.cancelled)
-        cancel_task.join()
+        stop_task.join()
         self.assertTrue(task.cancelled)
-        del task
 
-    
-    def test_cancel_at(self):
+    def test_stop_at(self):
         task = ScheduledTask(
             count_to_ten,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
-            start_immediately=True
+            start_immediately=True,
         )
-        two_seconds_from_now_time = (datetime.datetime.now() + datetime.timedelta(seconds=2)).strftime("%H:%M:%S")
-        cancel_task = task.cancel_at(two_seconds_from_now_time)
+
+        two_seconds_from_now = (
+            datetime.datetime.now() + datetime.timedelta(seconds=2)
+        ).strftime("%H:%M:%S")
+        stop_task = task.stop_at(two_seconds_from_now)
+
         self.assertFalse(task.cancelled)
-        cancel_task.join()
+        stop_task.join()
         self.assertTrue(task.cancelled)
-        del task
 
-    
-    def test_cancel_on(self):
+    def test_stop_on(self):
         task = ScheduledTask(
             count_to_ten,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
-            start_immediately=True
+            start_immediately=True,
         )
-        two_seconds_from_now_dt = (datetime.datetime.now() + datetime.timedelta(seconds=2)).strftime("%Y-%m-%d %H:%M:%S")
-        cancel_task = task.cancel_on(two_seconds_from_now_dt)
+
+        two_seconds_from_now_dt = (
+            datetime.datetime.now() + datetime.timedelta(seconds=2)
+        ).strftime("%Y-%m-%d %H:%M:%S")
+        stop_task = task.stop_on(two_seconds_from_now_dt)
+
         self.assertFalse(task.cancelled)
-        cancel_task.join()
+        stop_task.join()
         self.assertTrue(task.cancelled)
-        del task
 
-
-    def test_add_callback(self):
+    def test_add_result(self):
         task = ScheduledTask(
             count_to_ten,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
-            start_immediately=True
+            start_immediately=True,
+            save_results=True,
         )
 
-        task.add_callback(generic_callback)
-        self.assertTrue(len(task.callbacks) == 1)
-        self.assertIsInstance(task.callbacks[0], TaskCallback)
-        self.assertTrue(task.callbacks[0].task == task)
-        self.assertTrue(task.callbacks[0].func == generic_callback)
-        self.assertTrue(task.callbacks[0].trigger == CallbackTrigger.ERROR)
+        # Results are added automatically in the background
+        # Using the `_add_result` method
+        time.sleep(2)
+        self.assertTrue(len(task.resultset) == 2)
+        for result in task.resultset:
+            self.assertEqual(result.value, None)
 
-        with self.assertRaises(ValueError):
-            task.add_callback(generic_callback, "invalid_trigger")
-
-
-    def test_get_callbacks(self):
+    def test_get_results(self):
         task = ScheduledTask(
             count_to_ten,
             schedule=run_afterevery(seconds=1),
             manager=self.manager,
-            start_immediately=True
+            start_immediately=True,
+            save_results=True,
         )
-        self.assertTrue(task.get_callbacks(CallbackTrigger.ERROR) == [])
-        self.assertTrue(task.get_callbacks(CallbackTrigger.PAUSED) == [])
-        self.assertTrue(task.get_callbacks(CallbackTrigger.CANCELLED) == [])
 
-        task.add_callback(generic_callback, CallbackTrigger.ERROR)
-        task.add_callback(generic_callback, CallbackTrigger.PAUSED)
-        task.add_callback(generic_callback, CallbackTrigger.CANCELLED)
-        task.add_callback(generic_callback, CallbackTrigger.PAUSED)
+        time.sleep(2)
+        results = task.get_results()
+        self.assertIsInstance(results, list)
+        self.assertTrue(len(results) == 2)
+        for result in results:
+            self.assertIsInstance(result, TaskResult)
 
-        self.assertEqual(len(task.get_callbacks(CallbackTrigger.ERROR)), 1)
-        self.assertEqual(len(task.get_callbacks(CallbackTrigger.PAUSED)), 2)
-        self.assertEqual(len(task.get_callbacks(CallbackTrigger.CANCELLED)), 1)
+    def test_add_error_callback(self):
+        task = ScheduledTask(
+            raise_exception,
+            schedule=run_afterevery(seconds=1),
+            manager=self.manager,
+            start_immediately=True,
+        )
 
-        with self.assertRaises(ValueError):
-            task.get_callbacks("invalid_trigger")
-
-
+        task.add_error_callback(error_callback)
+        time.sleep(2)
+        self.assertTrue(error)
 
 
 if __name__ == "__main__":

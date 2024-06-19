@@ -15,7 +15,9 @@ def get_random_rm_char_id(id_limit: int = 826) -> str:
     return str(random.randint(0, id_limit))
 
 
-@manager.newtask(run_from_2am_to_9pm.afterevery(seconds=20), max_retries=2, save_results=True)
+@manager.newtask(
+    run_from_2am_to_9pm.afterevery(seconds=20), max_retries=2, save_results=True
+)
 def fetch_rm_character(char_id: str) -> Any | None:
     char_url = f"https://rickandmortyapi.com/api/character/{char_id}"
     with httpx.Client() as client:
@@ -26,12 +28,11 @@ def fetch_rm_character(char_id: str) -> Any | None:
             return response.json()
         response.raise_for_status()
     return
-        
+
 
 @manager.newtask(run_from_2am_to_9pm.afterevery(seconds=15))
 def update_rm_task_args(rm_task: pysche.ScheduledTask) -> None:
     rm_task.args = (get_random_rm_char_id(),)
-
 
 
 def main() -> None:
@@ -47,4 +48,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

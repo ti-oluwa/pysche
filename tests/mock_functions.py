@@ -24,8 +24,15 @@ def delay_print_hello_world(seconds: int):
 
 
 def raise_exception():
+    """Raises an exception."""
     raise Exception("This is an exception")
 
 
-def generic_callback(task, *args, **kwargs):
-    print(task.name)
+error = False
+
+
+def error_callback(task, exception):
+    """Prints the error message and sets the error flag to True."""
+    global error
+    error = True
+    print(f"Task {task} errored with exception: {exception}")

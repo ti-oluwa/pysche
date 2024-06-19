@@ -1,11 +1,16 @@
 from __future__ import annotations
-from typing import List, TypeVar, Union, Callable, Coroutine, Any
+from typing import List, TypeVar, Callable, Coroutine, Any
 import asyncio
 import datetime
 from asgiref.sync import sync_to_async
 
 from .abc import AbstractBaseSchedule
-from ._utils import utcoffset_to_zoneinfo, get_datetime_now, _strip_text, underscore_string
+from ._utils import (
+    utcoffset_to_zoneinfo,
+    get_datetime_now,
+    _strip_text,
+    underscore_string,
+)
 from .descriptors import SetOnceDescriptor, AttributeDescriptor
 
 
@@ -27,7 +32,7 @@ class Schedule(AbstractBaseSchedule):
     NOTE: A Schedule instance can be used for multiple tasks. Therefore, because of this,
     the next execution time of the tasks based on the schedule is not available.
     """
-    
+
     removable_prefix = "run_"
     """
     This indicates a prefix that can be removed from the string representation of a schedule.
@@ -57,7 +62,7 @@ class Schedule(AbstractBaseSchedule):
         parent = kwargs.get("parent", None)
         if parent and not isinstance(parent, Schedule):
             raise TypeError(f"'parent' must be an instance of '{Schedule.__name__}'")
-        
+
         self.parent = parent
         # If timezone is not set, use the timezone of the parent schedule phrase
         if not self.tz and self.parent:
@@ -68,10 +73,12 @@ class Schedule(AbstractBaseSchedule):
         if not self.tz:
             self.tz = utcoffset_to_zoneinfo(get_datetime_now().utcoffset())
         return None
-    
 
-    def make_schedule_func_for_task(self, scheduledtask) -> Callable[..., Coroutine[Any, Any, Any]]:
+    def make_schedule_func_for_task(
+        self, scheduledtask
+    ) -> Callable[..., Coroutine[Any, Any, Any]]:
         from .tasks import ScheduledTask
+
         task: ScheduledTask = scheduledtask
 
         async def schedule_func(*args, **kwargs) -> None:
@@ -83,7 +90,7 @@ class Schedule(AbstractBaseSchedule):
             while task.is_paused is True:
                 await asyncio.sleep(0.0001)
                 continue
-            
+
             if await sync_to_async(self.is_due)() is True:
                 task._last_executed_at = get_datetime_now(self.tz)
                 return await task.func(*args, **kwargs)
@@ -92,7 +99,6 @@ class Schedule(AbstractBaseSchedule):
         schedule_func.__qualname__ = f"schedule_func_for_{underscore_string(task.name)}"
         return schedule_func
 
-    
     def get_ancestors(self) -> List[ScheduleType]:
         """
         Return a list of all previous schedules this schedule is chained to,
@@ -118,8 +124,7 @@ class Schedule(AbstractBaseSchedule):
             # Reverse the list so that the first schedule in the chain is the first item in the list
             ancestors.reverse()
         return ancestors
-    
-    
+
     def as_string(self) -> str:
         attrs_dict = self.__dict__.copy()
         attrs_dict.pop("tz", None)
@@ -127,20 +132,21 @@ class Schedule(AbstractBaseSchedule):
         for k, v in attrs_dict.items():
             if k != "parent":
                 attrs_list.append(f"{k}={v}")
-        
+
         if self.tz and (not self.parent or self.tz != self.parent.tz):
-            # if this is a standalone schedule, or this is the first schedule in a schedule clause, 
+            # if this is a standalone schedule, or this is the first schedule in a schedule clause,
             # or the tzinfo of this schedule is different from its parent's, add the tzinfo attribute
             attrs_list.append(f"tz='{self.tz}'")
         return f"{type(self).__name__.lower()}({', '.join(attrs_list)})"
-    
 
     def description(self) -> str:
         desc = _strip_text(self.__describe__())
         if self.parent:
-            desc = f"{_strip_text(self.parent.description())}, {_strip_text(desc.lower(), "task will run")}"
+            desc = "{}, {}".format(
+                _strip_text(self.parent.description()).capitalize(),
+                _strip_text(desc.capitalize(), "Task will run"),
+            )
         return f"{desc.capitalize()}."
-
 
     def __str__(self) -> str:
         """Returns a string representation of the entire schedule/schedule clause (including any parent(s) if any)."""
@@ -152,19 +158,22 @@ class Schedule(AbstractBaseSchedule):
             for index, ancestor in enumerate(self.get_ancestors()):
                 parent_representation: str = ancestor.as_string()
                 if index != 0:
-                    parents_representations.append(parent_representation.removeprefix(self.removable_prefix))
+                    parents_representations.append(
+                        parent_representation.removeprefix(self.removable_prefix)
+                    )
                     continue
                 parents_representations.append(parent_representation)
-            return f"{'.'.join(parents_representations)}.{representation.removeprefix(self.removable_prefix)}"
-        
+            return "{}.{}".format(
+                ".".join(parents_representations),
+                representation.removeprefix(self.removable_prefix),
+            )
+
         # Just return the representation of the schedule.
         return representation
-    
 
     def __hash__(self) -> int:
         # Schedules/schedule clauses with the same string representation should have the same hash
         return hash(str(self))
-    
 
     def __eq__(self, other: ScheduleType) -> bool:
         if not isinstance(other, Schedule):
@@ -175,16 +184,14 @@ class Schedule(AbstractBaseSchedule):
         # since they will both work the same way
         return hash(self) == hash(other)
 
-
     def __add__(self, other: ScheduleType):
         """Combines two schedules into a schedule group."""
         from .schedulegroups import group_schedules
+
         try:
             return group_schedules(self, other)
         except ValueError as exc:
-            raise ValueError(
-                f"Cannot add {self} and {other}"
-            ) from exc
+            raise ValueError(f"Cannot add {self} and {other}") from exc
 
     # Allows the addition of schedules using the `+` operator
     __iadd__ = __add__
@@ -193,6 +200,3 @@ class Schedule(AbstractBaseSchedule):
 
 # Type variable for Schedule and its subclasses
 ScheduleType = TypeVar("ScheduleType", bound=Schedule)
-
-
-    
